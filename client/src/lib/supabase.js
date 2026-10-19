@@ -12,10 +12,50 @@ export const isSupabaseConfigured = () => {
   );
 };
 
+export const getSupabaseConfigStatus = () => {
+  const configured = isSupabaseConfigured();
+  const missing = [];
+  if (!supabaseUrl || supabaseUrl.includes('your-project')) missing.push('VITE_SUPABASE_URL');
+  if (!supabaseAnonKey || supabaseAnonKey.includes('your-anon-key')) missing.push('VITE_SUPABASE_ANON_KEY');
+  return { configured, missing, url: supabaseUrl };
+};
+
 if (!isSupabaseConfigured()) {
   console.warn(
     '[ClaimIt / Supabase] Supabase credentials not fully configured. Using fallback client. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment.'
   );
+}
+
+/**
+ * Look up registered user email by username to support username-based login.
+ * Queries public.lookup_email_by_username RPC or public.profiles.
+ */
+export async function lookupEmailByUsername(username) {
+  if (!username || !isSupabaseConfigured()) return null;
+  const cleanUsername = username.trim();
+  try {
+    // 1. Try secure stored RPC
+    const { data: rpcData, error: rpcError } = await supabase.rpc('lookup_email_by_username', {
+      p_username: cleanUsername,
+    });
+    if (!rpcError && rpcData) {
+      return rpcData;
+    }
+
+    // 2. Direct table lookup fallback
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('email')
+      .ilike('username', cleanUsername)
+      .maybeSingle();
+
+    if (!error && data?.email) {
+      return data.email;
+    }
+  } catch (err) {
+    console.warn('[ClaimIt / Supabase] lookupEmailByUsername exception:', err);
+  }
+  return null;
 }
 
 // Export singleton Supabase client

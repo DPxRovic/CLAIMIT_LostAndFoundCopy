@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import Login from './components/auth/Login.jsx';
 import AdminMainForm from './components/admin/Responsiveness.jsx';
 import MainForm_User from './components/user/MainForm_User.jsx';
+import DatabaseSchemaNotice from './components/shared/DatabaseSchemaNotice.jsx';
 
 /**
  * ClaimIt Loading Screen
@@ -38,7 +39,7 @@ function AuthLoadingScreen() {
  * Main application container containing role-based routing and session guards.
  */
 function AppContent() {
-  const { user, profile, role, status, loading, isConfigured, logout, devPreviewMode, setDevPreviewRole } = useAuth();
+  const { user, profile, role, status, loading, isConfigured, logout, devPreviewMode, setDevPreviewRole, schemaMissing } = useAuth();
   const [adminViewMode, setAdminViewMode] = useState('admin'); // 'admin' | 'user-preview'
 
   if (loading) {
@@ -54,6 +55,7 @@ function AppContent() {
   if (role === 'Admin') {
     return (
       <div className="relative w-full h-screen">
+        {schemaMissing && <DatabaseSchemaNotice projectId="fqehjgpksojjwdjkzjdh" />}
         {/* Admin Dev Mode floating switcher bar */}
         {devPreviewMode && (
           <aside
@@ -107,6 +109,7 @@ function AppContent() {
   // Authenticated as Student, Faculty, or Staff
   return (
     <div className="relative w-full min-h-screen">
+      {schemaMissing && <DatabaseSchemaNotice projectId="fqehjgpksojjwdjkzjdh" />}
       {devPreviewMode && (
         <aside
           aria-label="Developer Preview Controls"
