@@ -1,39 +1,92 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
+import { useAuth } from '../../context/AuthContext.jsx';
 
 /**
  * ResetPassword component for ClaimIt
+ * 
+ * Sets a new password via Supabase Auth updateUser() within an authenticated recovery session.
  * 
  * @param {Object} props
  * @param {() => void} [props.onSuccess] - Callback when password is reset successfully
  * @param {() => void} [props.onCancel] - Callback when clicking Cancel
  */
 export default function ResetPassword({ onSuccess, onCancel }) {
+  const { updatePassword } = useAuth();
+
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [serverError, setServerError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [imageError, setImageError] = useState(false);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
+  const newPasswordRef = useRef(null);
+  const confirmPasswordRef = useRef(null);
 
-    setErrorMessage('');
+  const handlePasswordChange = (field, setter) => (e) => {
+    setter(e.target.value);
+    if (fieldErrors[field]) {
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
+    if (serverError) {
+      setServerError('');
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setServerError('');
+
+    const errors = {};
+
+    // 1. Validate new password
+    if (!newPassword) {
+      errors.newPassword = 'Please enter your new password.';
+    } else if (newPassword.length < 8) {
+      errors.newPassword = 'Password must be at least 8 characters long.';
+    }
+
+    // 2. Validate confirm password
+    if (!confirmPassword) {
+      errors.confirmPassword = 'Please confirm your new password.';
+    } else if (newPassword !== confirmPassword) {
+      errors.confirmPassword = 'Passwords do not match.';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      if (errors.newPassword && newPasswordRef.current) {
+        newPasswordRef.current.focus();
+      } else if (errors.confirmPassword && confirmPasswordRef.current) {
+        confirmPasswordRef.current.focus();
+      }
+      return;
+    }
+
+    setFieldErrors({});
     setIsSubmitting(true);
 
-    setTimeout(() => {
+    try {
+      const result = await updatePassword(newPassword);
       setIsSubmitting(false);
+
+      if (!result.success) {
+        setServerError(result.error || 'Failed to update password. Your recovery session may have expired.');
+        return;
+      }
+
       if (onSuccess) {
         onSuccess();
       }
-    }, 400);
-  };
-
-  const handlePasswordChange = (setter) => (e) => {
-    setter(e.target.value);
-    if (errorMessage) {
-      setErrorMessage('');
+    } catch (err) {
+      setIsSubmitting(false);
+      setServerError(err?.message || "We couldn't connect to the server. Check your connection and try again.");
     }
   };
 
@@ -65,7 +118,7 @@ export default function ResetPassword({ onSuccess, onCancel }) {
           )}
         </div>
 
-        <div className="text-center mb-8">
+        <div className="text-center mb-6">
           <h1 className="text-2xl sm:text-3xl font-bold text-[#23261F] tracking-tight">
             Verification successful
           </h1>
@@ -73,6 +126,18 @@ export default function ResetPassword({ onSuccess, onCancel }) {
             You can now set a new password for your account.
           </p>
         </div>
+
+        {/* Server Error Alert */}
+        {serverError && (
+          <div role="alert" className="mb-5 p-3 rounded-lg bg-[#fff5f5] border border-[#ba1a1a]/20 text-[#ba1a1a] text-xs sm:text-sm font-medium flex items-start gap-2 animate-in fade-in duration-150">
+            <svg className="w-4 h-4 shrink-0 mt-0.5 text-[#ba1a1a]" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+            <div className="flex-1">
+              <p className="text-xs text-[#ba1a1a]/95 leading-relaxed">{serverError}</p>
+            </div>
+          </div>
+        )}
 
         <form className="flex flex-col gap-0" onSubmit={handleSubmit} noValidate>
           <div className="flex flex-col text-left">
@@ -84,15 +149,17 @@ export default function ResetPassword({ onSuccess, onCancel }) {
             </label>
             <div className="relative flex items-center">
               <input
+                ref={newPasswordRef}
                 id="new-password"
                 name="new-password"
                 type={showNewPassword ? 'text' : 'password'}
-                placeholder="Enter new password"
+                placeholder="Enter new password (min. 8 characters)"
                 value={newPassword}
-                onChange={handlePasswordChange(setNewPassword)}
-                required
+                onChange={handlePasswordChange('newPassword', setNewPassword)}
+                aria-invalid={Boolean(fieldErrors.newPassword)}
+                aria-describedby={fieldErrors.newPassword ? 'new-password-error' : undefined}
                 className={`w-full h-11 px-4 pr-11 bg-white text-sm text-[#23261F] placeholder-[#6E6858]/70 rounded-lg outline-none transition duration-150 border ${
-                  errorMessage
+                  fieldErrors.newPassword
                     ? 'border-[#ba1a1a] focus:ring-2 focus:ring-[#ba1a1a]/20'
                     : 'border-[#E8E4D8] focus:border-[#5170ff] focus:ring-2 focus:ring-[#5170ff]/20'
                 }`}
@@ -115,6 +182,14 @@ export default function ResetPassword({ onSuccess, onCancel }) {
                 )}
               </button>
             </div>
+            {fieldErrors.newPassword && (
+              <p id="new-password-error" role="alert" className="text-[#ba1a1a] text-xs font-medium mt-1 flex items-center gap-1">
+                <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <span>{fieldErrors.newPassword}</span>
+              </p>
+            )}
           </div>
 
           <div className="flex flex-col text-left mt-4">
@@ -126,15 +201,17 @@ export default function ResetPassword({ onSuccess, onCancel }) {
             </label>
             <div className="relative flex items-center">
               <input
+                ref={confirmPasswordRef}
                 id="confirm-password"
                 name="confirm-password"
                 type={showConfirmPassword ? 'text' : 'password'}
                 placeholder="Confirm your new password"
                 value={confirmPassword}
-                onChange={handlePasswordChange(setConfirmPassword)}
-                required
+                onChange={handlePasswordChange('confirmPassword', setConfirmPassword)}
+                aria-invalid={Boolean(fieldErrors.confirmPassword)}
+                aria-describedby={fieldErrors.confirmPassword ? 'confirm-password-error' : undefined}
                 className={`w-full h-11 px-4 pr-11 bg-white text-sm text-[#23261F] placeholder-[#6E6858]/70 rounded-lg outline-none transition duration-150 border ${
-                  errorMessage
+                  fieldErrors.confirmPassword
                     ? 'border-[#ba1a1a] focus:ring-2 focus:ring-[#ba1a1a]/20'
                     : 'border-[#E8E4D8] focus:border-[#5170ff] focus:ring-2 focus:ring-[#5170ff]/20'
                 }`}
@@ -157,15 +234,29 @@ export default function ResetPassword({ onSuccess, onCancel }) {
                 )}
               </button>
             </div>
+            {fieldErrors.confirmPassword && (
+              <p id="confirm-password-error" role="alert" className="text-[#ba1a1a] text-xs font-medium mt-1 flex items-center gap-1">
+                <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <span>{fieldErrors.confirmPassword}</span>
+              </p>
+            )}
           </div>
 
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full h-11 bg-[#5170ff] hover:bg-[#4767f6] active:scale-[0.99] text-white font-medium text-sm rounded-lg shadow-sm transition-all mt-6 flex items-center justify-center gap-2 cursor-pointer select-none"
+            className="w-full h-11 bg-[#5170ff] hover:bg-[#4767f6] active:bg-[#2b47dc] active:scale-[0.99] text-white font-medium text-sm rounded-lg shadow-sm transition-all mt-6 flex items-center justify-center gap-2 cursor-pointer select-none disabled:opacity-70 disabled:cursor-not-allowed"
           >
             {isSubmitting ? (
-              <span>Submitting...</span>
+              <div className="flex items-center gap-2">
+                <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                <span>Updating password...</span>
+              </div>
             ) : (
               <span>Submit</span>
             )}

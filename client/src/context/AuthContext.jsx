@@ -16,6 +16,10 @@ export function AuthProvider({ children }) {
 
   // Reference to prevent race conditions from overlapping async profile fetches
   const currentUserIdRef = useRef(null);
+  const userRef = useRef(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   // Fetch authoritative profile from public.profiles
   const fetchProfile = useCallback(async (userId, fallbackUser = null) => {
@@ -58,7 +62,7 @@ export function AuthProvider({ children }) {
         }
 
         // Synthesize fallback profile from user auth metadata so the app remains accessible
-        const activeUser = fallbackUser || user;
+        const activeUser = fallbackUser || userRef.current;
         const meta = activeUser?.user_metadata || {};
         const fallbackProfile = {
           id: userId,
@@ -83,7 +87,7 @@ export function AuthProvider({ children }) {
 
       if (!data) {
         // Table exists, but row was not inserted yet. Try user_metadata as fallback
-        const activeUser = fallbackUser || user;
+        const activeUser = fallbackUser || userRef.current;
         const meta = activeUser?.user_metadata || {};
         if (meta.fullName || meta.role) {
           const fallbackProfile = {
@@ -125,7 +129,12 @@ export function AuthProvider({ children }) {
       }
       return null;
     }
-  }, [isConfigured, user]);
+  }, [isConfigured]);
+
+  const fetchProfileRef = useRef(fetchProfile);
+  useEffect(() => {
+    fetchProfileRef.current = fetchProfile;
+  }, [fetchProfile]);
 
   // Initial session restoration and auth listener
   useEffect(() => {
@@ -153,8 +162,10 @@ export function AuthProvider({ children }) {
           currentUserIdRef.current = initialSession.user.id;
           setSession(initialSession);
           setUser(initialSession.user);
-          const loadedProfile = await fetchProfile(initialSession.user.id, initialSession.user);
+          const loadedProfile = await fetchProfileRef.current(initialSession.user.id, initialSession.user);
           
+          if (!isMounted) return;
+
           // Verify status on initial restoration
           if (loadedProfile && loadedProfile.status !== 'Active') {
             await supabase.auth.signOut();
@@ -212,7 +223,9 @@ export function AuthProvider({ children }) {
           setUser(newSession.user);
 
           if (userChanged || event === 'SIGNED_IN' || event === 'USER_UPDATED') {
-            const loadedProfile = await fetchProfile(newUserId, newSession.user);
+            const loadedProfile = await fetchProfileRef.current(newUserId, newSession.user);
+            if (!isMounted) return;
+
             if (loadedProfile && loadedProfile.status !== 'Active') {
               await supabase.auth.signOut();
               currentUserIdRef.current = null;
@@ -232,7 +245,7 @@ export function AuthProvider({ children }) {
       currentUserIdRef.current = null;
       subscription.unsubscribe();
     };
-  }, [isConfigured, fetchProfile]);
+  }, [isConfigured]);
 
   // Login operation
   const login = useCallback(async (usernameOrEmail, password) => {
@@ -505,6 +518,150 @@ export function AuthProvider({ children }) {
     }
   }, [isConfigured, fetchProfile, schemaMissing]);
 
+  // Password Recovery - Step 1: Request recovery email/code
+  const requestPasswordReset = useCallback(async (email) => {
+    if (!isConfigured) {
+      return {
+        success: false,
+        error: 'Password recovery is temporarily unavailable because authentication is not configured correctly.',
+      };
+    }
+
+    const cleanEmail = (email || '').trim().toLowerCase();
+    if (!cleanEmail) {
+      return { success: false, error: 'Please enter your email address.' };
+    }
+
+    try {
+      const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/#reset-password` : undefined;
+      const { data, error: resetError } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo,
+      });
+
+      if (resetError) {
+        let msg = resetError.message;
+        if (msg.includes('rate limit') || resetError.status === 429) {
+          msg = 'Email rate limit exceeded. Please wait a few minutes before requesting another code.';
+        } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+          msg = "We couldn't connect to the server. Check your connection and try again.";
+        }
+        return { success: false, error: msg };
+      }
+
+      return {
+        success: true,
+        data,
+        message: 'If an account matches that email address, recovery instructions have been sent.',
+      };
+    } catch (err) {
+      let msg = err?.message || 'An unexpected error occurred while requesting password reset.';
+      if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+        msg = "We couldn't connect to the server. Check your connection and try again.";
+      }
+      return { success: false, error: msg };
+    }
+  }, [isConfigured]);
+
+  // Password Recovery - Step 2: Verify 6-digit OTP code
+  const verifyRecoveryOtp = useCallback(async (email, token) => {
+    if (!isConfigured) {
+      return {
+        success: false,
+        error: 'Verification is temporarily unavailable because authentication is not configured correctly.',
+      };
+    }
+
+    const cleanEmail = (email || '').trim().toLowerCase();
+    const cleanToken = (token || '').trim();
+
+    if (!cleanEmail) {
+      return { success: false, error: 'Email address is missing.' };
+    }
+    if (!cleanToken || cleanToken.length < 6) {
+      return { success: false, error: 'Please enter the complete 6-digit verification code.' };
+    }
+
+    try {
+      const { data, error: verifyError } = await supabase.auth.verifyOtp({
+        email: cleanEmail,
+        token: cleanToken,
+        type: 'recovery',
+      });
+
+      if (verifyError) {
+        let msg = verifyError.message;
+        if (msg.includes('Token has expired') || msg.includes('expired')) {
+          msg = 'This verification code has expired. Please request a new code.';
+        } else if (msg.includes('invalid') || msg.includes('Invalid') || verifyError.status === 400) {
+          msg = 'Invalid verification code. Please check the 6-digit code and try again.';
+        } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+          msg = "We couldn't connect to the server. Check your connection and try again.";
+        }
+        return { success: false, error: msg };
+      }
+
+      if (data?.session) {
+        setSession(data.session);
+        setUser(data.user);
+      }
+
+      return {
+        success: true,
+        session: data.session,
+        user: data.user,
+      };
+    } catch (err) {
+      let msg = err?.message || 'An unexpected error occurred while verifying the code.';
+      if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+        msg = "We couldn't connect to the server. Check your connection and try again.";
+      }
+      return { success: false, error: msg };
+    }
+  }, [isConfigured]);
+
+  // Password Recovery - Step 3: Update password using authenticated recovery session
+  const updatePassword = useCallback(async (newPassword) => {
+    if (!isConfigured) {
+      return {
+        success: false,
+        error: 'Password update is temporarily unavailable because authentication is not configured correctly.',
+      };
+    }
+
+    if (!newPassword || newPassword.length < 8) {
+      return { success: false, error: 'Password must be at least 8 characters long.' };
+    }
+
+    try {
+      const { data, error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (updateError) {
+        let msg = updateError.message;
+        if (msg.includes('Password should be at least')) {
+          msg = 'Password must be at least 8 characters long.';
+        } else if (msg.includes('Auth session missing') || msg.includes('session')) {
+          msg = 'Your recovery session has expired. Please restart the password reset process.';
+        } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+          msg = "We couldn't connect to the server. Check your connection and try again.";
+        }
+        return { success: false, error: msg };
+      }
+
+      return {
+        success: true,
+        user: data.user,
+      };
+    } catch (err) {
+      let msg = err?.message || 'An unexpected error occurred while updating your password.';
+      if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+        msg = "We couldn't connect to the server. Check your connection and try again.";
+      }
+      return { success: false, error: msg };
+    }
+  }, [isConfigured]);
+
   // Logout operation
   const logout = useCallback(async () => {
     try {
@@ -630,6 +787,9 @@ export function AuthProvider({ children }) {
     register,
     logout,
     refreshProfile,
+    requestPasswordReset,
+    verifyRecoveryOtp,
+    updatePassword,
     clearError: () => setError(null),
   };
 
@@ -662,6 +822,9 @@ const DEFAULT_AUTH_STATE = {
   register: async () => ({ success: false, error: 'Authentication not initialized' }),
   logout: async () => ({ success: true }),
   refreshProfile: async () => null,
+  requestPasswordReset: async () => ({ success: false, error: 'Authentication not initialized' }),
+  verifyRecoveryOtp: async () => ({ success: false, error: 'Authentication not initialized' }),
+  updatePassword: async () => ({ success: false, error: 'Authentication not initialized' }),
   clearError: () => {},
 };
 

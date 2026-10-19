@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import RegFormStudent from './RegFormStudent.jsx';
 import RegFormFaculty from './RegFormFaculty.jsx';
-import ForgotPassword from './ForgotPassword.jsx';
+import AuthFlow from './AuthFlow.jsx';
 import DatabaseSchemaNotice from '../shared/DatabaseSchemaNotice.jsx';
 
 /**
@@ -151,13 +151,8 @@ export default function Login({ onForgotPassword, onRegister, onLoginSuccess }) 
   // If switched to forgot password view
   if (internalView === 'forgot-password') {
     return (
-      <ForgotPassword
-        onBackToLogin={() => setInternalView('login')}
-        onProceedToCode={() => {
-          setSubmittedMessage('Verification code dispatched. Please check your email.');
-          setInternalView('login');
-          setTimeout(() => setSubmittedMessage(null), 5000);
-        }}
+      <AuthFlow
+        onNavigateToLogin={() => setInternalView('login')}
       />
     );
   }

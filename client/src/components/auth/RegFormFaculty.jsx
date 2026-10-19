@@ -132,6 +132,9 @@ export default function RegFormFaculty({ onLogin, onSwitchToStudent, onSubmit })
         if (result.error && result.error.toLowerCase().includes('email')) {
           setFieldErrors((prev) => ({ ...prev, email: result.error }));
           if (emailRef.current) emailRef.current.focus();
+        } else if (result.error && result.error.toLowerCase().includes('password')) {
+          setFieldErrors((prev) => ({ ...prev, password: result.error }));
+          if (passwordRef.current) passwordRef.current.focus();
         }
         setIsSubmitting(false);
         return;

@@ -79,8 +79,10 @@ export default function Responsiveness({
 
   // Keep the selected page synchronized with the parent.
   useEffect(() => {
-    setActivePath(currentPath);
-  }, [currentPath]);
+    if (currentPath && currentPath !== activePath) {
+      setActivePath(currentPath);
+    }
+  }, [currentPath, activePath]);
 
   // Close the profile popup when clicking or tapping outside it.
   useEffect(() => {

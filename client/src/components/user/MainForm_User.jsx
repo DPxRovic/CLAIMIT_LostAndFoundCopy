@@ -14,20 +14,10 @@ import Notifications from '../shared/Notifications.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 
 import HomePage from './Home.jsx';
-
-// Load other pages only when needed.
-const BrowseItems = lazy(() => import('./browseitems/BrowseItems.jsx'));
-const MyReports = lazy(() => import('./myreports/MyReports.jsx'));
-const ClaimsAndMatches = lazy(() => import('./claimsandmatches/ClaimsAndMatches.jsx'));
-const ProfileSettings = lazy(() => import('./ProfileSettings.jsx'));
-
-// Loading fallback for lazy-loaded pages.
-// (Moved outside the component so it isn't recreated on every render.)
-const PageLoading = ({ label }) => (
-  <div className="flex w-full items-center justify-center py-20">
-    <p className="text-sm text-[#6E6858]">Loading {label}...</p>
-  </div>
-);
+import BrowseItems from './browseitems/BrowseItems.jsx';
+import MyReports from './myreports/MyReports.jsx';
+import ClaimsAndMatches from './claimsandmatches/ClaimsAndMatches.jsx';
+import ProfileSettings from './ProfileSettings.jsx';
 
 // Placeholder notifications for UI work. Replace with real data later.
 const INITIAL_NOTIFICATIONS = [
@@ -71,8 +61,31 @@ export default function MainForm_User({
 
   const user = initialUser || authContext?.formattedUser || defaultUser;
 
-  // Default page.
-  const [currentTab, setCurrentTab] = useState('home');
+  // Default page initialized from URL hash if valid
+  const getInitialTab = () => {
+    if (typeof window !== 'undefined' && window.location.hash) {
+      const h = window.location.hash.replace('#', '').trim();
+      const valid = ['home', 'browse-items', 'my-reports', 'my-claims', 'profile-settings'];
+      if (valid.includes(h)) return h;
+    }
+    return 'home';
+  };
+
+  const [currentTab, setCurrentTab] = useState(getInitialTab);
+
+  // Synchronize with URL hash changes
+  useEffect(() => {
+    const onHashChange = () => {
+      const h = window.location.hash.replace('#', '').trim();
+      const valid = ['home', 'browse-items', 'my-reports', 'my-claims', 'profile-settings'];
+      if (valid.includes(h)) {
+        setCurrentTab(h);
+      }
+    };
+
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
 
   // Navbar and profile states.
   const [imageError, setImageError] = useState(false);
@@ -143,9 +156,10 @@ export default function MainForm_User({
 
   // Handle navbar navigation.
   const handleTabClick = (event, path) => {
-    event.preventDefault();
+    if (event) event.preventDefault();
 
     setCurrentTab(path);
+    window.location.hash = path;
 
     if (onNavigate) {
       onNavigate(path);
@@ -198,6 +212,7 @@ export default function MainForm_User({
   const handleViewReports = () => {
     setIsReportConfirmationOpen(false);
     setCurrentTab('my-reports');
+    window.location.hash = 'my-reports';
 
     if (onNavigate) {
       onNavigate('my-reports');
@@ -207,6 +222,7 @@ export default function MainForm_User({
   // Navigate to Claims & Matches (from the Browse Items success popup).
   const handleViewClaims = () => {
     setCurrentTab('my-claims');
+    window.location.hash = 'my-claims';
 
     if (onNavigate) {
       onNavigate('my-claims');
@@ -217,6 +233,7 @@ export default function MainForm_User({
   const handleProfileSettings = () => {
     setIsProfileModalOpen(false);
     setCurrentTab('profile-settings');
+    window.location.hash = 'profile-settings';
 
     if (onProfileSettings) {
       onProfileSettings();
@@ -249,6 +266,7 @@ export default function MainForm_User({
   // Navigate from Home to Browse Items.
   const handleBrowseAllClick = () => {
     setCurrentTab('browse-items');
+    window.location.hash = 'browse-items';
 
     if (onNavigate) {
       onNavigate('browse-items');
@@ -262,33 +280,16 @@ export default function MainForm_User({
         return <HomePage onBrowseAllClick={handleBrowseAllClick} onNavigateToClaims={handleViewClaims} />;
 
       case 'browse-items':
-        return (
-          <Suspense fallback={<PageLoading label="Browse Items" />}>
-            <BrowseItems onNavigateToClaims={handleViewClaims} />
-          </Suspense>
-        );
+        return <BrowseItems onNavigateToClaims={handleViewClaims} />;
 
       case 'my-reports':
-        return (
-          <Suspense fallback={<PageLoading label="My Reports" />}>
-            <MyReports />
-          </Suspense>
-        );
+        return <MyReports />;
 
       case 'my-claims':
-        return (
-          <Suspense fallback={<PageLoading label="Claims & Matches" />}>
-            <ClaimsAndMatches />
-          </Suspense>
-        );
+        return <ClaimsAndMatches />;
 
       case 'profile-settings':
-        return (
-          <Suspense fallback={<PageLoading label="Profile & Settings" />}>
-            {/* Log Out in the sidebar opens the same logout confirmation as the profile menu */}
-            <ProfileSettings onLogout={handleLogout} />
-          </Suspense>
-        );
+        return <ProfileSettings onLogout={handleLogout} />;
 
       default:
         return <HomePage onBrowseAllClick={handleBrowseAllClick} onNavigateToClaims={handleViewClaims} />;
