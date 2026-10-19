@@ -1,18 +1,20 @@
 import React, { useEffect } from 'react';
 import { LogOut, X } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext.jsx';
 
-const DEFAULT_USER = {
-  name: 'Taylor Swift',
-  email: 'taylorswift@gmail.com',
+const DEFAULT_FALLBACK_USER = {
+  name: 'Campus User',
+  email: 'user@claimit.ucc.edu.ph',
   role: 'Student',
-  avatarUrl:
-    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+  avatarUrl: '',
 };
 
 /**
- * LogoutConfirmation Modal Component
- * Same style as the other confirm popups ("Close this report?", "Withdraw Your Claim?"):
- * icon badge + close (X), heading and copy, account strip, divider, action row.
+ * LogoutConfirmation Modal Component (Backend 1 - ROVIC)
+ * 
+ * Styled according to ClaimIt system specifications:
+ * icon badge + close (X), heading and copy, user identity strip, divider, action row.
+ * Connected with useAuth() for live Supabase sign out.
  *
  * @param {Object} [props]
  * @param {boolean} [props.isOpen=true] - Controls visibility of the modal
@@ -20,7 +22,7 @@ const DEFAULT_USER = {
  * @param {Function} [props.onConfirm] - Callback when user confirms logout
  * @param {Function} [props.onClose] - Alternative callback alias for onCancel
  * @param {Function} [props.onLogout] - Alternative callback alias for onConfirm
- * @param {Object} [props.user] - User details to display
+ * @param {Object} [props.user] - User details to display (defaults to authenticated profile)
  * @param {string} [props.className] - Additional classes for the modal container
  */
 export const LogoutConfirmation = ({
@@ -29,11 +31,13 @@ export const LogoutConfirmation = ({
   onConfirm,
   onClose,
   onLogout,
-  user = DEFAULT_USER,
+  user,
   className = '',
 }) => {
+  const authContext = useAuth();
+
   const handleCancel = onCancel || onClose;
-  const handleConfirm = onConfirm || onLogout;
+  const handleConfirm = onConfirm || onLogout || (authContext ? authContext.logout : null);
 
   // Close on Escape key press
   useEffect(() => {
@@ -53,10 +57,16 @@ export const LogoutConfirmation = ({
     return null;
   }
 
+  const activeUser = user || authContext?.formattedUser || DEFAULT_FALLBACK_USER;
+
   const userData = {
-    ...DEFAULT_USER,
-    ...user,
+    name: activeUser.name || activeUser.fullName || 'Campus User',
+    email: activeUser.email || 'user@claimit.ucc.edu.ph',
+    role: activeUser.role || 'Student',
+    avatarUrl: activeUser.avatarUrl || '',
   };
+
+  const initialLetter = userData.name ? userData.name.charAt(0).toUpperCase() : 'U';
 
   return (
     <div
@@ -97,21 +107,27 @@ export const LogoutConfirmation = ({
           </p>
         </div>
 
-        {/* Account strip (neutral, so the blue role badge stands out) */}
+        {/* Account strip */}
         <div className="mb-5 p-3 rounded-lg bg-[#F9FAFB] border border-[#E8E4D8] flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <img
-              src={userData.avatarUrl}
-              alt={userData.name}
-              className="w-10 h-10 rounded-full object-cover shrink-0 border border-[#E8E4D8]"
-            />
+            {userData.avatarUrl ? (
+              <img
+                src={userData.avatarUrl}
+                alt={userData.name}
+                className="w-10 h-10 rounded-full object-cover shrink-0 border border-[#E8E4D8]"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-[#eff4ff] text-[#5170ff] font-bold text-sm flex items-center justify-center shrink-0 border border-[#E8E4D8]">
+                {initialLetter}
+              </div>
+            )}
             <div className="flex flex-col min-w-0">
               <span className="font-semibold text-sm text-[#23261F] leading-snug truncate">{userData.name}</span>
               <span className="text-xs text-[#6E6858] truncate">{userData.email}</span>
             </div>
           </div>
 
-          {/* Role badge: same as the Student / Faculty badge on the admin side */}
+          {/* Role badge */}
           <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-[#EFF4FF] text-[#5170ff] shrink-0">
             {userData.role}
           </span>

@@ -11,6 +11,7 @@ import ReportSubmittedConfirmation from './myreports/ReportSubmittedConfirmation
 import { UserProfileModal } from '../shared/UserProfileModal.jsx';
 import LogoutConfirmation from '../shared/LogoutConfirmation.jsx';
 import Notifications from '../shared/Notifications.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
 
 import HomePage from './Home.jsx';
 
@@ -56,8 +57,20 @@ export default function MainForm_User({
   onReportItem,
   onProfileSettings,
   onLogout,
-  user,
+  user: initialUser,
 }) {
+  const authContext = useAuth();
+
+  const defaultUser = {
+    name: 'Taylor Swift',
+    email: 'taylorswift@gmail.com',
+    role: 'Student',
+    avatarUrl:
+      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+  };
+
+  const user = initialUser || authContext?.formattedUser || defaultUser;
+
   // Default page.
   const [currentTab, setCurrentTab] = useState('home');
 
@@ -222,11 +235,14 @@ export default function MainForm_User({
   };
 
   // Confirm logout.
-  const handleConfirmLogout = () => {
+  const handleConfirmLogout = async () => {
     setIsLogoutConfirmationOpen(false);
 
     if (onLogout) {
       onLogout();
+    }
+    if (authContext) {
+      await authContext.logout();
     }
   };
 

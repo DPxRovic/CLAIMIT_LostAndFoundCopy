@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
+import { useAuth } from '../../context/AuthContext.jsx';
 
 /**
- * UserProfileModal component for ClaimIt
+ * UserProfileModal component for ClaimIt (Backend 1 - ROVIC)
  * 
  * Standalone popover card displaying user identity, profile settings link, and logout option.
  * 
@@ -11,16 +12,20 @@ import React, { useState } from 'react';
  * @param {() => void} [props.onLogout] - Callback when clicking Logout
  */
 export default function UserProfileModal({
-  user = {
+  user,
+  onProfileSettings,
+  onLogout,
+}) {
+  const authContext = useAuth();
+
+  const [avatarError, setAvatarError] = useState(false);
+
+  const activeUser = user || authContext?.formattedUser || {
     name: 'Sabrina Carpenter',
     email: 'sabrina@gmail.com',
     role: 'Admin',
     avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
-  },
-  onProfileSettings,
-  onLogout,
-}) {
-  const [avatarError, setAvatarError] = useState(false);
+  };
 
   const handleProfileSettingsClick = (e) => {
     e.preventDefault();
@@ -33,6 +38,8 @@ export default function UserProfileModal({
     e.preventDefault();
     if (onLogout) {
       onLogout();
+    } else if (authContext) {
+      authContext.logout();
     }
   };
 
@@ -46,16 +53,16 @@ export default function UserProfileModal({
         {/* 1. Profile Picture */}
         <div className="relative mb-3.5">
           <div className="w-16 h-16 rounded-full overflow-hidden border border-[#E8E4D8] bg-[#eff4ff] flex items-center justify-center">
-            {!avatarError && user?.avatarUrl ? (
+            {!avatarError && activeUser?.avatarUrl ? (
               <img
-                src={user.avatarUrl}
-                alt={user?.name || 'User portrait'}
+                src={activeUser.avatarUrl}
+                alt={activeUser?.name || 'User portrait'}
                 className="w-full h-full object-cover"
                 onError={() => setAvatarError(true)}
               />
             ) : (
               <span className="text-xl font-bold text-[#5170ff]">
-                {user?.name ? user.name.charAt(0).toUpperCase() : 'U'}
+                {activeUser?.name ? activeUser.name.charAt(0).toUpperCase() : 'U'}
               </span>
             )}
           </div>
@@ -63,21 +70,21 @@ export default function UserProfileModal({
 
         {/* 2. Name & Role */}
         <div className="flex items-center justify-center gap-1.5 mb-1 whitespace-nowrap">
-          <h2 className=" font-semibold text-[1.0625rem] leading-tight text-[#23261F] tracking-tight truncate max-w-[180px]">
-            {user?.name || 'Sabrina Carpenter'}
+          <h2 className="font-semibold text-[1.0625rem] leading-tight text-[#23261F] tracking-tight truncate max-w-[180px]">
+            {activeUser?.name || 'Sabrina Carpenter'}
           </h2>
           <span
             className={`inline-flex items-center px-2 py-0.5 rounded-full text-[0.6875rem] font-medium leading-none shrink-0 ${getRoleBadgeStyle(
-              user?.role
+              activeUser?.role
             )}`}
           >
-            {user?.role || 'Admin'}
+            {activeUser?.role || 'Admin'}
           </span>
         </div>
 
         {/* 3. Email Address */}
-        <p className=" font-normal text-[0.8125rem] leading-normal text-[#6E6858] break-all">
-          {user?.email || 'sabrina@gmail.com'}
+        <p className="font-normal text-[0.8125rem] leading-normal text-[#6E6858] break-all">
+          {activeUser?.email || 'sabrina@gmail.com'}
         </p>
       </div>
 
@@ -107,7 +114,7 @@ export default function UserProfileModal({
                 d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632zM18.75 9.75v3m1.5-1.5h-3"
               />
             </svg>
-            <span className=" font-medium text-[0.875rem] tracking-tight">
+            <span className="font-medium text-[0.875rem] tracking-tight">
               Profile &amp; Settings
             </span>
           </div>
@@ -147,7 +154,7 @@ export default function UserProfileModal({
                 d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"
               />
             </svg>
-            <span className=" font-medium text-[0.875rem] tracking-tight">
+            <span className="font-medium text-[0.875rem] tracking-tight">
               Logout
             </span>
           </div>

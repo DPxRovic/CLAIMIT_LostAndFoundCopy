@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import UserProfileModal from '../shared/UserProfileModal.jsx';
 import LogoutConfirmation from '../shared/LogoutConfirmation.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
 
 // Load admin pages from the pages folder.
 const pageModules = import.meta.glob('./pages/*.jsx');
@@ -33,20 +34,30 @@ export default function Responsiveness({
   currentPath = 'manage-lists',
   onNavigate = () => {},
   onLogout,
-  initialUser = {
+  initialUser,
+}) {
+  const authContext = useAuth();
+
+  const defaultUser = {
     name: 'Sabrina Carpenter',
     email: 'sabrina@gmail.com',
     role: 'Admin',
     avatarUrl:
       'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
-  },
-}) {
+  };
+
   const [activePath, setActivePath] = useState(currentPath);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isLogoutConfirmationOpen, setIsLogoutConfirmationOpen] =
     useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [user, setUser] = useState(initialUser);
+  const [user, setUser] = useState(initialUser || authContext?.formattedUser || defaultUser);
+
+  useEffect(() => {
+    if (!initialUser && authContext?.formattedUser) {
+      setUser(authContext.formattedUser);
+    }
+  }, [authContext?.formattedUser, initialUser]);
 
   const profileButtonRef = useRef(null);
   const modalContainerRef = useRef(null);
@@ -171,13 +182,14 @@ export default function Responsiveness({
     setIsLogoutConfirmationOpen(true);
   };
 
-  const handleConfirmLogout = () => {
+  const handleConfirmLogout = async () => {
     setIsLogoutConfirmationOpen(false);
 
     if (onLogout) {
       onLogout();
-    } else {
-      alert('Logged out successfully.');
+    }
+    if (authContext) {
+      await authContext.logout();
     }
   };
 
