@@ -1,5 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { supabase, isSupabaseConfigured, getSupabaseConfigStatus, lookupEmailByUsername } from '../lib/supabase.js';
+import {
+  supabase,
+  isSupabaseConfigured,
+  getSupabaseConfigStatus,
+  lookupEmailByUsername,
+  updateUserProfile as apiUpdateProfile,
+  uploadUserAvatar as apiUploadAvatar,
+  updateUserEmail as apiUpdateEmail,
+  verifyAndChangePassword as apiChangePassword,
+} from '../lib/supabase.js';
 
 const AuthContext = createContext(null);
 
@@ -692,6 +701,146 @@ export function AuthProvider({ children }) {
     return null;
   }, [user, fetchProfile]);
 
+  // Self-Service Profile Update (Prompt 5)
+  const updateUserProfile = useCallback(async (updates) => {
+    if (!user?.id) {
+      return { success: false, error: 'No active session found. Please log in.' };
+    }
+
+    // In-memory fallback if Supabase credentials are not configured
+    if (!isConfigured) {
+      setProfile((prev) => {
+        const next = { ...(prev || {}), ...updates };
+        return next;
+      });
+      return { success: true, profile: { ...profile, ...updates } };
+    }
+
+    const res = await apiUpdateProfile(user.id, updates);
+    if (res.success && res.profile) {
+      setProfile(res.profile);
+    }
+    return res;
+  }, [user?.id, isConfigured, profile]);
+
+  // Self-Service Avatar Upload (Prompt 5)
+  const uploadAvatar = useCallback(async (file) => {
+    if (!user?.id) {
+      return { success: false, error: 'No active session found. Please log in.' };
+    }
+
+    if (!file) {
+      return { success: false, error: 'Please choose an image file to upload.' };
+    }
+
+    // MIME type check
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!allowed.includes(file.type)) {
+      return {
+        success: false,
+        error: 'Unsupported image format. Allowed formats are JPG, PNG, WEBP, and GIF.',
+      };
+    }
+
+    // Size limit check (2MB)
+    const MAX_SIZE = 2 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      return {
+        success: false,
+        error: 'File size exceeds 2MB limit. Please choose a smaller image.',
+      };
+    }
+
+    if (!isConfigured) {
+      const localUrl = URL.createObjectURL(file);
+      setProfile((prev) => ({ ...(prev || {}), avatar_url: localUrl }));
+      return { success: true, publicUrl: localUrl };
+    }
+
+    const res = await apiUploadAvatar(user.id, file);
+    if (res.success && res.profile) {
+      setProfile(res.profile);
+    }
+    return res;
+  }, [user?.id, isConfigured]);
+
+  // Self-Service Email Update (Prompt 5)
+  const updateEmail = useCallback(async (newEmail) => {
+    if (!user?.id) {
+      return { success: false, error: 'No active session found. Please log in.' };
+    }
+
+    const cleanEmail = (newEmail || '').trim().toLowerCase();
+    if (!cleanEmail) {
+      return { success: false, error: 'Email address cannot be empty.' };
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      return { success: false, error: 'Please enter a valid email address.' };
+    }
+
+    if (cleanEmail === (user.email || profile?.email || '').toLowerCase()) {
+      return { success: false, error: 'New email is identical to current email.' };
+    }
+
+    if (!isConfigured) {
+      setUser((prev) => (prev ? { ...prev, email: cleanEmail } : null));
+      setProfile((prev) => (prev ? { ...prev, email: cleanEmail } : null));
+      return {
+        success: true,
+        message: 'Email updated in preview mode.',
+        pendingVerification: false,
+      };
+    }
+
+    const res = await apiUpdateEmail(cleanEmail);
+    if (res.success) {
+      // In Supabase, email update requires clicking the confirmation link.
+      // Refresh profile to reflect any server updates.
+      await fetchProfile(user.id);
+    }
+    return res;
+  }, [user?.id, user?.email, profile?.email, isConfigured, fetchProfile]);
+
+  // Self-Service Secure Password Change (Prompt 5)
+  const changePassword = useCallback(async (currentPassword, newPassword, confirmPassword) => {
+    if (!user?.id) {
+      return { success: false, error: 'No active session found. Please log in.' };
+    }
+
+    if (!currentPassword) {
+      return { success: false, error: 'Current password is required.' };
+    }
+
+    if (!newPassword) {
+      return { success: false, error: 'New password is required.' };
+    }
+
+    if (newPassword.length < 8) {
+      return { success: false, error: 'New password must be at least 8 characters long.' };
+    }
+
+    if (newPassword === currentPassword) {
+      return { success: false, error: 'New password cannot be the same as your current password.' };
+    }
+
+    if (newPassword !== confirmPassword) {
+      return { success: false, error: 'New password and confirmation password do not match.' };
+    }
+
+    if (!isConfigured) {
+      return { success: true, message: 'Password updated in preview mode.' };
+    }
+
+    const currentEmail = user.email || profile?.email;
+    if (!currentEmail) {
+      return { success: false, error: 'Unable to verify email for current session. Please log in again.' };
+    }
+
+    return await apiChangePassword(currentEmail, currentPassword, newPassword);
+  }, [user?.id, user?.email, profile?.email, isConfigured]);
+
   // Developer Preview switcher (Used ONLY in unconfigured development mode for visual inspection)
   const setDevPreviewRole = useCallback((roleName) => {
     if (isConfigured) return; // Disallowed in production / configured environments
@@ -787,6 +936,10 @@ export function AuthProvider({ children }) {
     register,
     logout,
     refreshProfile,
+    updateUserProfile,
+    uploadAvatar,
+    updateEmail,
+    changePassword,
     requestPasswordReset,
     verifyRecoveryOtp,
     updatePassword,
@@ -822,6 +975,10 @@ const DEFAULT_AUTH_STATE = {
   register: async () => ({ success: false, error: 'Authentication not initialized' }),
   logout: async () => ({ success: true }),
   refreshProfile: async () => null,
+  updateUserProfile: async () => ({ success: false, error: 'Authentication not initialized' }),
+  uploadAvatar: async () => ({ success: false, error: 'Authentication not initialized' }),
+  updateEmail: async () => ({ success: false, error: 'Authentication not initialized' }),
+  changePassword: async () => ({ success: false, error: 'Authentication not initialized' }),
   requestPasswordReset: async () => ({ success: false, error: 'Authentication not initialized' }),
   verifyRecoveryOtp: async () => ({ success: false, error: 'Authentication not initialized' }),
   updatePassword: async () => ({ success: false, error: 'Authentication not initialized' }),

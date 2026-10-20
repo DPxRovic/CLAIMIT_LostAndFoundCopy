@@ -39,7 +39,7 @@ function AuthLoadingScreen() {
  * Main application container containing role-based routing and session guards.
  */
 function AppContent() {
-  const { user, profile, role, status, loading, isConfigured, logout, devPreviewMode, setDevPreviewRole, schemaMissing } = useAuth();
+  const { user, role, status, loading, logout, devPreviewMode, setDevPreviewRole, schemaMissing } = useAuth();
   const [adminViewMode, setAdminViewMode] = useState('admin'); // 'admin' | 'user-preview'
 
   if (loading) {

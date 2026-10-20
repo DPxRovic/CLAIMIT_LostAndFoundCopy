@@ -132,7 +132,9 @@ export function AddAccountModal({ isOpen, onClose, onSubmit, defaultType = 'stud
     };
   }, [isOpen]);
 
-  const handleSubmit = (e) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (!fullName.trim()) return setErrorMessage('Please enter the full name.');
@@ -143,16 +145,29 @@ export function AddAccountModal({ isOpen, onClose, onSubmit, defaultType = 'stud
     if (password !== confirmPassword) return setErrorMessage('Passwords do not match. Please verify.');
 
     setErrorMessage('');
-    onSubmit?.({
-      type: role,
-      name: fullName.trim(),
-      email: email.trim(),
-      password,
-      ...(role === 'student'
-        ? { schoolId: studentId.trim(), program, yearLevel, section: section.trim() }
-        : { facultyId: facultyId.trim(), department }),
-    });
-    onCloseRef.current?.();
+    setIsSubmitting(true);
+
+    try {
+      const result = await onSubmit?.({
+        type: role,
+        name: fullName.trim(),
+        email: email.trim(),
+        password,
+        ...(role === 'student'
+          ? { schoolId: studentId.trim(), program, yearLevel, section: section.trim() }
+          : { facultyId: facultyId.trim(), department }),
+      });
+
+      if (result && result.success === false) {
+        setErrorMessage(result.error || 'Failed to create account.');
+      } else {
+        onCloseRef.current?.();
+      }
+    } catch (err) {
+      setErrorMessage(err?.message || 'An unexpected error occurred.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -386,9 +401,20 @@ export function AddAccountModal({ isOpen, onClose, onSubmit, defaultType = 'stud
           <div className="pt-2">
             <button
               type="submit"
-              className="w-full py-2.5 px-4 bg-[#5170ff] hover:bg-[#3d5cf5] active:bg-[#2b47dc] text-white font-semibold text-sm rounded-lg shadow-sm shadow-[#5170ff]/30 transition-all cursor-pointer flex items-center justify-center gap-2"
+              disabled={isSubmitting}
+              className="w-full py-2.5 px-4 bg-[#5170ff] hover:bg-[#3d5cf5] active:bg-[#2b47dc] disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold text-sm rounded-lg shadow-sm shadow-[#5170ff]/30 transition-all cursor-pointer flex items-center justify-center gap-2"
             >
-              Create Account
+              {isSubmitting ? (
+                <>
+                  <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>Creating Account...</span>
+                </>
+              ) : (
+                <span>Create Account</span>
+              )}
             </button>
           </div>
         </form>

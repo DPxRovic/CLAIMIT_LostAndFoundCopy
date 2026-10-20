@@ -289,7 +289,7 @@ export default function MainForm_User({
         return <ClaimsAndMatches />;
 
       case 'profile-settings':
-        return <ProfileSettings onLogout={handleLogout} />;
+        return <ProfileSettings initialUser={user} onLogout={handleLogout} />;
 
       default:
         return <HomePage onBrowseAllClick={handleBrowseAllClick} onNavigateToClaims={handleViewClaims} />;

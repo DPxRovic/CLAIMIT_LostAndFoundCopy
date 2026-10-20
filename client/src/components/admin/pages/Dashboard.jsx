@@ -1,6 +1,62 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import AdminAccountModals from '../modals/AdminAccountModals.jsx';
 import AddAccountModal from '../modals/AddAccountModal.jsx';
+import {
+  isSupabaseConfigured,
+  adminFetchAllProfiles,
+  adminApproveFaculty,
+  adminDeclineFaculty,
+  adminCreateAccount,
+} from '../../../lib/supabase.js';
+
+function formatJoinedDate(isoString) {
+  if (!isoString) return 'Today';
+  try {
+    const d = new Date(isoString);
+    if (Number.isNaN(d.getTime())) return isoString;
+    return d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+  } catch {
+    return isoString;
+  }
+}
+
+function getInitials(name = '') {
+  const parts = name.replace(/Dr\.|Prof\.|Engr\./g, '').trim().split(' ').filter(Boolean);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return (parts[0] || 'U').slice(0, 2).toUpperCase();
+}
+
+function mapProfileToDashboardAccount(p) {
+  const isStudent = p.role === 'Student';
+  return {
+    id: p.id,
+    name: p.full_name || p.username || 'User',
+    email: p.email,
+    username: p.username ? p.username.replace(/^@/, '') : (p.email ? p.email.split('@')[0] : ''),
+    idNumber: p.school_id || p.faculty_id || '',
+    role: isStudent ? 'Students' : p.role,
+    department: isStudent
+      ? (p.program || 'General Enrollment')
+      : (p.department || p.program || 'Faculty Department'),
+    position: isStudent
+      ? [p.year_level, p.section && `Section ${p.section}`].filter(Boolean).join(', ') || 'Undergraduate'
+      : (p.position || p.section || 'Faculty Member'),
+    campus: p.campus || 'Congress Campus',
+    status: p.status,
+    joined: formatJoinedDate(p.created_at),
+    initials: getInitials(p.full_name || p.username || 'User'),
+    avatarColor: isStudent ? '#7c3aed' : '#0d9488',
+    avatarUrl: p.avatar_url || null,
+    stats: { reports: 0, claims: 0, resolved: 0, chats: 0 },
+    suspendReason: p.suspend_reason || '',
+    inactiveReason: p.inactive_reason || '',
+    declinedReason: p.declined_reason || '',
+    declinedNote: p.declined_note || '',
+    raw: p,
+  };
+}
 
 /**
  * Initial Mock Data for Admin Dashboard Accounts
@@ -352,6 +408,8 @@ function Pagination({ page, totalPages, totalItems, onPageChange, itemLabel }) {
 export default function Dashboard({ onNavigate = () => {} }) {
   // Master state for accounts
   const [accounts, setAccounts] = useState(INITIAL_ACCOUNTS);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
 
   // Search, filters, pagination
   const [searchQuery, setSearchQuery] = useState('');
@@ -362,6 +420,46 @@ export default function Dashboard({ onNavigate = () => {} }) {
   // Modal flow state: 'manage' | 'decline' | 'approved' | 'declined' | null
   const [modalState, setModalState] = useState(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
+
+  const [toastMessage, setToastMessage] = useState(null);
+  const [actionError, setActionError] = useState(null);
+
+  const showToast = (message) => {
+    setToastMessage(message);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  // Load authoritative accounts from Supabase
+  const loadAccounts = useCallback(async () => {
+    if (!isSupabaseConfigured()) {
+      setAccounts(INITIAL_ACCOUNTS);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setLoadError(null);
+
+    try {
+      const res = await adminFetchAllProfiles();
+      if (!res.success) {
+        setLoadError(res.error || 'Failed to load accounts from database.');
+        setLoading(false);
+        return;
+      }
+
+      const mapped = (res.data || []).map(mapProfileToDashboardAccount);
+      setAccounts(mapped);
+    } catch (err) {
+      setLoadError(err?.message || 'Unexpected error loading accounts.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAccounts();
+  }, [loadAccounts]);
 
   // Snapshot counts (live from the data)
   const stats = useMemo(
@@ -374,7 +472,7 @@ export default function Dashboard({ onNavigate = () => {} }) {
       },
       {
         label: 'Students',
-        value: accounts.filter((a) => a.role === 'Students').length,
+        value: accounts.filter((a) => a.role === 'Students' || a.role === 'Student').length,
         icon: 'school',
         iconClass: 'bg-[#F3F0FF] text-[#7C3AED]',
       },
@@ -403,8 +501,14 @@ export default function Dashboard({ onNavigate = () => {} }) {
         acc.email.toLowerCase().includes(q) ||
         (acc.username && acc.username.toLowerCase().includes(q));
 
-      const matchesRole = selectedRole === 'All Roles' || acc.role === selectedRole;
-      const matchesStatus = selectedStatus === 'All Statuses' || acc.status === selectedStatus;
+      const matchesRole =
+        selectedRole === 'All Roles' ||
+        acc.role === selectedRole ||
+        (selectedRole === 'Students' && acc.role === 'Student');
+
+      const matchesStatus =
+        selectedStatus === 'All Statuses' ||
+        acc.status.toLowerCase() === selectedStatus.toLowerCase();
 
       return matchesSearch && matchesRole && matchesStatus;
     });
@@ -416,12 +520,25 @@ export default function Dashboard({ onNavigate = () => {} }) {
   const paginatedAccounts = filteredAccounts.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
   // Modal handlers
-  const handleOpenManage = (account) => setModalState({ type: 'manage', account });
+  const handleOpenManage = (account) => {
+    setActionError(null);
+    setModalState({ type: 'manage', account });
+  };
 
-  const handleApproveAccount = (accountToApprove) => {
+  const handleApproveAccount = async (accountToApprove) => {
+    setActionError(null);
+    if (isSupabaseConfigured()) {
+      const res = await adminApproveFaculty(accountToApprove.id);
+      if (res.error || !res.data?.success) {
+        setActionError(res.error?.message || res.data?.error || res.data?.message || 'Failed to approve account in database.');
+        return;
+      }
+    }
+
     const updatedAccount = { ...accountToApprove, status: 'Active' };
     setAccounts((prev) => prev.map((acc) => (acc.id === accountToApprove.id ? updatedAccount : acc)));
     setModalState({ type: 'approved', account: updatedAccount });
+    showToast(`Faculty registration approved for ${accountToApprove.name}`);
   };
 
   const handleDeclineRequest = (account) => setModalState({ type: 'decline', account });
@@ -434,11 +551,20 @@ export default function Dashboard({ onNavigate = () => {} }) {
     }
   };
 
-  // Declined registrations are removed from the list (same as User Management)
-  const handleConfirmDecline = ({ account, reason, note }) => {
+  const handleConfirmDecline = async ({ account, reason, note }) => {
+    setActionError(null);
+    if (isSupabaseConfigured()) {
+      const res = await adminDeclineFaculty(account.id, reason, note);
+      if (res.error || !res.data?.success) {
+        setActionError(res.error?.message || res.data?.error || res.data?.message || 'Failed to decline registration in database.');
+        return;
+      }
+    }
+
     const declinedAccount = { ...account, status: 'Declined', declinedReason: reason, declinedNote: note };
     setAccounts((prev) => prev.filter((acc) => acc.id !== account.id));
     setModalState({ type: 'declined', account: declinedAccount, reason });
+    showToast(`Registration declined for ${account.name}`);
   };
 
   const handleCloseModal = () => setModalState(null);
@@ -448,7 +574,19 @@ export default function Dashboard({ onNavigate = () => {} }) {
     onNavigate('activity-logs');
   };
 
-  const handleAddAccount = (payload) => {
+  const handleAddAccount = async (payload) => {
+    setActionError(null);
+
+    if (isSupabaseConfigured()) {
+      const res = await adminCreateAccount(payload);
+      if (!res.success) {
+        return { success: false, error: res.error };
+      }
+      await loadAccounts();
+      showToast(`Account created successfully for ${payload.name}`);
+      return { success: true };
+    }
+
     const isStudent = payload.type === 'student';
     const initials =
       payload.name
@@ -494,6 +632,8 @@ export default function Dashboard({ onNavigate = () => {} }) {
 
     setAccounts((prev) => [newAcc, ...prev]);
     setCurrentPage(1);
+    showToast(`Account created successfully for ${payload.name}`);
+    return { success: true };
   };
 
   const handleExportCSV = () => {
@@ -514,6 +654,14 @@ export default function Dashboard({ onNavigate = () => {} }) {
 
   return (
     <div className="max-w-[1340px] mx-auto flex flex-col gap-6 w-full">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-[#23261F] text-white px-5 py-3 rounded-xl shadow-xl text-sm font-medium flex items-center gap-2 border border-white/10 animate-in fade-in">
+          <span className="material-symbols-outlined text-[#5170ff] text-[18px]">check_circle</span>
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
@@ -529,6 +677,41 @@ export default function Dashboard({ onNavigate = () => {} }) {
           <span>Add Account</span>
         </button>
       </div>
+
+      {/* Action Error Banner */}
+      {actionError && (
+        <div
+          role="alert"
+          className="p-3 bg-[#fff5f5] text-[#ba1a1a] border border-[#ba1a1a]/20 rounded-lg text-sm flex items-center justify-between gap-3 animate-in fade-in"
+        >
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-[18px] shrink-0">error</span>
+            <span>{actionError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActionError(null)}
+            className="text-xs font-bold hover:underline cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Load Error Banner */}
+      {loadError && (
+        <div className="p-4 text-center text-sm text-[#ba1a1a] bg-[#fff5f5] border border-[#ba1a1a]/20 rounded-xl flex flex-col items-center gap-2">
+          <span className="material-symbols-outlined text-[24px]">error</span>
+          <p className="font-semibold">{loadError}</p>
+          <button
+            type="button"
+            onClick={loadAccounts}
+            className="px-3 py-1 bg-[#ba1a1a] text-white rounded text-xs font-medium cursor-pointer"
+          >
+            Retry Loading
+          </button>
+        </div>
+      )}
 
       {/* Snapshot cards (compact, counts only — same as Reports) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -633,7 +816,18 @@ export default function Dashboard({ onNavigate = () => {} }) {
             </thead>
 
             <tbody className="divide-y divide-[#E8E4D8] text-sm text-[#23261F]">
-              {paginatedAccounts.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="py-12 px-6 text-center text-sm text-[#6E6858]">
+                    <div className="flex items-center justify-center gap-2">
+                      <span className="material-symbols-outlined text-[20px] text-[#5170ff] animate-spin">
+                        progress_activity
+                      </span>
+                      <span>Loading database accounts...</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : paginatedAccounts.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-10 px-6 text-center text-sm text-[#6E6858]">
                     No accounts found matching your search or filters.
