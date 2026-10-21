@@ -499,7 +499,14 @@ export default function UserManagement({ onNavigate = () => {} }) {
     if (isSupabaseConfigured()) {
       const res = await adminApproveFaculty(account.id);
       if (res.error || !res.data?.success) {
-        setActionError(res.error?.message || res.data?.error || res.data?.message || 'Failed to approve account in database.');
+        const errMsg = res.error?.message || res.data?.error || res.data?.message || 'Failed to approve account in database.';
+        if (errMsg.toLowerCase().includes('no longer pending') || errMsg.toLowerCase().includes('already been approved')) {
+          setActionError(`This application is no longer pending approval (${errMsg}). The accounts list has been refreshed.`);
+          await loadAccounts();
+          setModalState(null);
+          return;
+        }
+        setActionError(errMsg);
         return;
       }
     }
@@ -509,6 +516,9 @@ export default function UserManagement({ onNavigate = () => {} }) {
     setAllUsers((prev) => [approvedUser, ...prev]);
     setModalState({ type: 'approved', account: approvedUser });
     showToast(`Faculty registration approved for ${account.name}`);
+    if (isSupabaseConfigured()) {
+      loadAccounts();
+    }
   };
 
   const handleDeclineRequest = (account) => setModalState({ type: 'decline', account });
@@ -525,7 +535,14 @@ export default function UserManagement({ onNavigate = () => {} }) {
     if (isSupabaseConfigured()) {
       const res = await adminDeclineFaculty(account.id, reason, note);
       if (res.error || !res.data?.success) {
-        setActionError(res.error?.message || res.data?.error || res.data?.message || 'Failed to decline registration in database.');
+        const errMsg = res.error?.message || res.data?.error || res.data?.message || 'Failed to decline registration in database.';
+        if (errMsg.toLowerCase().includes('no longer pending')) {
+          setActionError(`This application is no longer pending approval (${errMsg}). The accounts list has been refreshed.`);
+          await loadAccounts();
+          setModalState(null);
+          return;
+        }
+        setActionError(errMsg);
         return;
       }
     }
@@ -540,6 +557,9 @@ export default function UserManagement({ onNavigate = () => {} }) {
     setAllUsers((prev) => [declinedUser, ...prev]);
     setModalState({ type: 'declined', account: declinedUser, reason });
     showToast(`Registration declined for ${account.name}`);
+    if (isSupabaseConfigured()) {
+      loadAccounts();
+    }
   };
 
   // ---------------------------------------------------------------------------

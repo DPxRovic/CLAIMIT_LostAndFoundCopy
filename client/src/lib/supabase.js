@@ -209,6 +209,7 @@ export async function adminCreateAccount(payload) {
 
 /**
  * Fetches all user profiles from public.profiles with role-based security.
+ * Applies deterministic sorting (created_at DESC with id DESC tie-breaker).
  */
 export async function adminFetchAllProfiles() {
   if (!isSupabaseConfigured()) {
@@ -219,7 +220,8 @@ export async function adminFetchAllProfiles() {
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
 
     if (error) {
       return { success: false, error: error.message, data: [] };
@@ -228,6 +230,25 @@ export async function adminFetchAllProfiles() {
     return { success: true, data: data || [] };
   } catch (err) {
     return { success: false, error: err?.message || 'Failed to fetch profiles.', data: [] };
+  }
+}
+
+/**
+ * Fetches authoritative dashboard metrics directly from PostgreSQL via RPC.
+ */
+export async function adminFetchDashboardStats() {
+  if (!isSupabaseConfigured()) {
+    return { success: false, error: 'Supabase is not configured.' };
+  }
+
+  try {
+    const { data, error } = await supabase.rpc('admin_get_dashboard_stats');
+    if (error) {
+      return { success: false, error: error.message };
+    }
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err?.message || 'Failed to fetch dashboard metrics.' };
   }
 }
 

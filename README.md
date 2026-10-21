@@ -56,45 +56,43 @@ Visit [http://localhost:3000](http://localhost:3000) in your browser.
 | `npm run dev` | Starts the Vite development server on port 3000 |
 | `npm run build` | Compiles the production build into `client/dist/` |
 | `npm run lint` | Runs the Oxlint static analyzer across the codebase |
+| `node test-master-audit-suite.js` | Runs the Master God Prompt 8 complete verification & journey audit suite |
+| `node test-admin-account-management.js` | Runs Prompt 6 admin management and status enforcement tests |
+| `node test-profile-settings.js` | Runs Prompt 5 profile settings, anti-tamper, and storage isolation tests |
+| `node test-dashboard-and-faculty-workflow.js` | Runs Prompt 7 dashboard metrics and faculty workflow tests |
 
 ---
 
-## 4. Supabase Setup (Backend 1: ROVIC)
+## 4. Supabase Setup & Migrations (Backend 1: ROVIC)
 
-### 4.1 Create a Free Supabase Project
-1. Log in to [Supabase](https://supabase.com).
-2. Click **New Project** (select your preferred region).
-3. Retrieve your **Project URL** and **anon public API Key** under **Project Settings > API**.
+### 4.1 Required Environment Variables
+The application requires the following environment variables (set in `.env` or deployment runtime):
+```ini
+VITE_SUPABASE_URL=https://[YOUR-PROJECT-ID].supabase.co
+VITE_SUPABASE_ANON_KEY=[YOUR-ANON-PUBLIC-KEY]
+```
+> **SECURITY DIRECTIVE**: Never expose `SUPABASE_SERVICE_ROLE_KEY` in frontend code, environment files, or client builds. All operations use the public anonymous key with PostgreSQL Row Level Security (RLS) and Security Definer RPC functions.
 
-### 4.2 Database Migrations
+### 4.2 Database Migrations (Apply in Order)
 Version-controlled migrations are stored under `supabase/migrations/`:
-- `supabase/migrations/20261019000001_create_account_schema.sql`
+1. `supabase/migrations/20261019000001_create_account_schema.sql` — Schema definition for `profiles`, `account_audit_logs`, trigger provisioning, and initial RPCs.
+2. `supabase/migrations/20261019000002_add_username_lookup.sql` — Secure username-to-email lookup RPC (`lookup_email_by_username`).
+3. `supabase/migrations/20261020000001_profile_storage_security.sql` — Avatar storage folder isolation (`${auth.uid()}/*`) and RLS policies.
+4. `supabase/migrations/20261020000002_admin_management_and_status_enforcement.sql` — Authoritative admin actions (`admin_suspend_user`, `admin_reactivate_user`, `admin_deactivate_user`, `admin_reset_user_password`).
+5. `supabase/migrations/20261021000001_dashboard_stats_and_faculty_workflow.sql` — Authoritative dashboard stats RPC (`admin_get_dashboard_stats`) and concurrency-safe approval/decline state machines.
 
-To apply the migration to your Supabase project:
+To apply migrations to your Supabase project:
 
 **Option A — Supabase Web Dashboard (Recommended & Instant)**:
 1. Open the [Supabase Dashboard](https://supabase.com/dashboard) and navigate to the **SQL Editor**.
 2. Click **New Query**.
-3. Copy the entire contents of `supabase/migrations/20261019000001_create_account_schema.sql` and paste it into the editor.
-4. Click **Run** to execute the migration.
+3. Copy and execute each migration file in chronological order.
+4. Verify that tables, triggers, and functions appear in the schema cache.
 
 **Option B — Supabase CLI**:
 ```bash
-# Push migration using your database connection string
-npx supabase db push --db-url "postgresql://postgres:[YOUR-PASSWORD]@[YOUR-DB-HOST]:5432/postgres"
-
-# Or link and push if you have your project ref and personal access token:
-npx supabase link --project-ref [YOUR-PROJECT-REF]
-npx supabase db push
+npx supabase db push --db-url "postgresql://postgres:[PASSWORD]@[HOST]:5432/postgres"
 ```
-
-The migration provisions:
-- `public.profiles`: Stores student and faculty information, approval statuses, and role assignments.
-- `public.account_audit_logs`: Records administrative decisions (faculty approvals, declines, suspensions).
-- PostgreSQL triggers (`handle_new_user`, `protect_profile_privileges`) ensuring zero client-side privilege escalation.
-- Administrative RPC functions (`admin_approve_faculty`, `admin_decline_faculty`, `admin_suspend_user`, `admin_reactivate_user`, `admin_deactivate_user`, `admin_update_user_details`).
-- Row Level Security (RLS) policies enforcing database-authoritative authorization.
-- `avatars` Supabase Storage bucket with public read and authenticated owner write access.
 
 ### 4.3 Supabase Auth Configuration
 1. In the Supabase Dashboard, navigate to **Authentication > Providers > Email**.

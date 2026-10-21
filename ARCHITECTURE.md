@@ -208,25 +208,25 @@ To safeguard existing features, Backend 1 enforces strict integration firewalls:
 
 ---
 
-## 7. Implementation Inventory
+## 7. Implementation & Verification Inventory (Verified End-to-End)
 
-| Component Path | Responsibility | Current Data Source | Service Used | Target Supabase Integration | UI Preserved? |
+| Component Path | Responsibility | Current Data Source | Service Used | Supabase Integration State | UI Preserved? |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `client/src/lib/supabase.js` | Supabase singleton client & admin RPC wrappers | Environment variables | Supabase Client SDK | Configured and exported | Yes |
-| `client/src/components/auth/Login.jsx` | Sign in view, password toggle, view routing | React local state (`useState`) | None (Mock) | `supabase.auth.signInWithPassword` + profile lookup | Yes, 100% |
-| `client/src/components/auth/RegFormStudent.jsx` | Student registration form & validation | React local state (`useState`) | None (Mock) | `supabase.auth.signUp` + trigger on `auth.users` | Yes, 100% |
-| `client/src/components/auth/RegFormFaculty.jsx` | Faculty registration form & validation | React local state (`useState`) | None (Mock) | `supabase.auth.signUp` + trigger (status: Pending approval) | Yes, 100% |
-| `client/src/components/auth/AuthFlow.jsx` | Step coordinator for password reset flow | React local state (`useState`) | None (Mock) | Coordinates Supabase OTP / password reset | Yes, 100% |
-| `client/src/components/auth/ForgotPassword.jsx` | Email submission for password reset | React local state (`useState`) | None (Mock) | `supabase.auth.resetPasswordForEmail` | Yes, 100% |
-| `client/src/components/auth/VerifyCode.jsx` | 6-digit OTP verification & resend | React local state (`useState`) | None (Mock) | `supabase.auth.verifyOtp` (token verification) | Yes, 100% |
-| `client/src/components/auth/ResetPassword.jsx` | Set new password after OTP verification | React local state (`useState`) | None (Mock) | `supabase.auth.updateUser({ password })` | Yes, 100% |
-| `client/src/components/auth/PasswordResetSuccess.jsx` | Success confirmation screen | Static view with callback | None (Mock) | Returns user to login with success alert | Yes, 100% |
-| `client/src/components/user/ProfileSettings.jsx` | Student profile edits, avatar upload, password changes | Component prop `initialUser` + local state | None (Mock) | Query/mutate `profiles` + Supabase Storage `avatars` bucket | Yes, 100% |
-| `client/src/components/admin/pages/AdminProfileSettings.jsx` | Admin profile edits, avatar, contact, password | Component prop `initialUser` + local state | None (Mock) | Query/mutate `profiles` + `supabase.auth.updateUser` | Yes, 100% |
-| `client/src/components/admin/pages/UserManagement.jsx` | User management directory, subtabs, filter, search, CSV | In-memory `INITIAL_ALL_USERS`, `INITIAL_PENDING_USERS` | None (Mock) | Query `profiles` table with filter/search, mutate statuses | Yes, 100% |
-| `client/src/components/admin/pages/Dashboard.jsx` | Admin dashboard overview metrics and recent accounts table | In-memory `INITIAL_ACCOUNTS` | None (Mock) | Query aggregate counts + latest 10 rows from `profiles` | Yes, 100% |
-| `client/src/components/admin/modals/AddAccountModal.jsx` | Administrative direct account creation | React local state (`useState`) | None (Mock) | `supabase.auth.signUp` or admin insert into `profiles` | Yes, 100% |
-| `client/src/components/admin/modals/AdminAccountModals.jsx` | Faculty review, approval, decline modal flow | In-memory callbacks (`onApprove`, `onConfirmDecline`) | None (Mock) | RPCs `admin_approve_faculty`, `admin_decline_faculty` | Yes, 100% |
-| `client/src/components/admin/modals/UserAccountModals.jsx` | User details, edit, reset pw, suspend, deactivate | In-memory state and callback triggers | None (Mock) | RPCs `admin_suspend_user`, `admin_reactivate_user`, etc. | Yes, 100% |
-| `client/src/components/shared/UserProfileModal.jsx` | Popover user identity card in top navigation | Component prop `user` | None (Mock) | Connected to global user session context | Yes, 100% |
-| `client/src/components/shared/LogoutConfirmation.jsx` | Logout confirmation modal | Component props `isOpen`, `user` | None (Mock) | Calls `supabase.auth.signOut()` on confirm | Yes, 100% |
+| `client/src/lib/supabase.js` | Supabase singleton client & admin RPC wrappers | Environment variables (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) | `@supabase/supabase-js` | **LIVE**: Singleton client, username lookup, admin RPC callers | Yes |
+| `client/src/components/auth/Login.jsx` | Sign in view, password toggle, view routing | `useAuth()` + Supabase Auth | `supabase.auth.signInWithPassword` + `profiles` | **LIVE**: Authoritative status gating, username-or-email lookup | Yes, 100% |
+| `client/src/components/auth/RegFormStudent.jsx` | Student registration form & validation | `useAuth().register` | `supabase.auth.signUp` + trigger on `auth.users` | **LIVE**: 8-char pw policy, Student role, Active status | Yes, 100% |
+| `client/src/components/auth/RegFormFaculty.jsx` | Faculty registration form & validation | `useAuth().register` | `supabase.auth.signUp` + trigger on `auth.users` | **LIVE**: Faculty role, Pending approval gate | Yes, 100% |
+| `client/src/components/auth/AuthFlow.jsx` | Step coordinator for password reset flow | `useAuth()` | React state coordinator | **LIVE**: Coordinates 4-step recovery lifecycle | Yes, 100% |
+| `client/src/components/auth/ForgotPassword.jsx` | Email submission for password reset | `useAuth().requestPasswordReset` | `supabase.auth.resetPasswordForEmail` | **LIVE**: Truthful feedback, rate-limit detection | Yes, 100% |
+| `client/src/components/auth/VerifyCode.jsx` | 6-digit OTP verification & resend | `useAuth().verifyRecoveryOtp` | `supabase.auth.verifyOtp` (recovery) | **LIVE**: Token validation, expired token separation | Yes, 100% |
+| `client/src/components/auth/ResetPassword.jsx` | Set new password after OTP verification | `useAuth().updatePassword` | `supabase.auth.updateUser({ password })` | **LIVE**: Password update via authenticated session | Yes, 100% |
+| `client/src/components/auth/PasswordResetSuccess.jsx` | Success confirmation screen | Static view with callback | Navigation trigger | **LIVE**: Clean session cleanup & return to login | Yes, 100% |
+| `client/src/components/user/ProfileSettings.jsx` | Student profile edits, avatar upload, password changes | `useAuth()` + `profiles` + `avatars` bucket | `updateUserProfile`, `uploadUserAvatar`, `verifyAndChangePassword` | **LIVE**: Whitelisted fields, 2MB avatar storage, password verification | Yes, 100% |
+| `client/src/components/admin/pages/AdminProfileSettings.jsx` | Admin profile edits, avatar, contact, password | `useAuth()` + `profiles` | `updateUserProfile`, `uploadUserAvatar`, `verifyAndChangePassword` | **LIVE**: Whitelisted admin fields, avatar upload, password verification | Yes, 100% |
+| `client/src/components/admin/pages/UserManagement.jsx` | User management directory, subtabs, filter, search, CSV | `adminFetchAllProfiles()` + RPCs | `admin_approve_faculty`, `admin_decline_faculty`, `admin_suspend_user`, `admin_reactivate_user`, `admin_deactivate_user` | **LIVE**: Real accounts query, deterministic sort, safe unapproved reactivation | Yes, 100% |
+| `client/src/components/admin/pages/Dashboard.jsx` | Admin dashboard overview metrics and recent accounts table | `adminFetchAllProfiles()` + `admin_get_dashboard_stats()` | `profiles` query + aggregate counts RPC | **LIVE**: Authoritative counts, zero vs error distinction, filter combos | Yes, 100% |
+| `client/src/components/admin/modals/AddAccountModal.jsx` | Administrative direct account creation | `adminCreateAccount()` | Transient `auth.signUp` + `account_audit_logs` | **LIVE**: Student/Faculty direct provisioning without admin session disruption | Yes, 100% |
+| `client/src/components/admin/modals/AdminAccountModals.jsx` | Faculty review, approval, decline modal flow | `adminApproveFaculty`, `adminDeclineFaculty` | Database RPCs with row-level locks | **LIVE**: Concurrency-safe approval/decline, historical preservation | Yes, 100% |
+| `client/src/components/admin/modals/UserAccountModals.jsx` | User details, edit, reset pw, suspend, deactivate | Admin RPC wrappers in `supabase.js` | Database RPCs + audit logs | **LIVE**: Real database updates, temporary password generator | Yes, 100% |
+| `client/src/components/shared/UserProfileModal.jsx` | Popover user identity card in top navigation | `useAuth().profile` | Global AuthContext | **LIVE**: Connected to verified session profile | Yes, 100% |
+| `client/src/components/shared/LogoutConfirmation.jsx` | Logout confirmation modal | `useAuth().logout` | `supabase.auth.signOut()` | **LIVE**: Destroys session, cleans state | Yes, 100% |

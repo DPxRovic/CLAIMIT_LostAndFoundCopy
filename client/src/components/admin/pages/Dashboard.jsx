@@ -4,6 +4,7 @@ import AddAccountModal from '../modals/AddAccountModal.jsx';
 import {
   isSupabaseConfigured,
   adminFetchAllProfiles,
+  adminFetchDashboardStats,
   adminApproveFaculty,
   adminDeclineFaculty,
   adminCreateAccount,
@@ -283,6 +284,7 @@ const ROLE_OPTIONS = [
   { value: 'All Roles', label: 'All Roles' },
   { value: 'Students', label: 'Students' },
   { value: 'Faculty', label: 'Faculty' },
+  { value: 'Staff', label: 'Staff' },
 ];
 
 const STATUS_OPTIONS = [
@@ -290,6 +292,8 @@ const STATUS_OPTIONS = [
   { value: 'Pending approval', label: 'Pending approval' },
   { value: 'Active', label: 'Active' },
   { value: 'Suspended', label: 'Suspended' },
+  { value: 'Inactive', label: 'Inactive' },
+  { value: 'Declined', label: 'Declined' },
 ];
 
 // Same colors as User Management
@@ -408,8 +412,10 @@ function Pagination({ page, totalPages, totalItems, onPageChange, itemLabel }) {
 export default function Dashboard({ onNavigate = () => {} }) {
   // Master state for accounts
   const [accounts, setAccounts] = useState(INITIAL_ACCOUNTS);
+  const [serverStats, setServerStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
+  const [isActionPending, setIsActionPending] = useState(false);
 
   // Search, filters, pagination
   const [searchQuery, setSearchQuery] = useState('');
@@ -429,10 +435,11 @@ export default function Dashboard({ onNavigate = () => {} }) {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Load authoritative accounts from Supabase
+  // Load authoritative accounts & statistics from Supabase
   const loadAccounts = useCallback(async () => {
     if (!isSupabaseConfigured()) {
       setAccounts(INITIAL_ACCOUNTS);
+      setServerStats(null);
       setLoading(false);
       return;
     }
@@ -441,17 +448,25 @@ export default function Dashboard({ onNavigate = () => {} }) {
     setLoadError(null);
 
     try {
-      const res = await adminFetchAllProfiles();
-      if (!res.success) {
-        setLoadError(res.error || 'Failed to load accounts from database.');
+      const [profilesRes, statsRes] = await Promise.all([
+        adminFetchAllProfiles(),
+        adminFetchDashboardStats(),
+      ]);
+
+      if (!profilesRes.success) {
+        setLoadError(profilesRes.error || 'Failed to load accounts from database.');
         setLoading(false);
         return;
       }
 
-      const mapped = (res.data || []).map(mapProfileToDashboardAccount);
+      const mapped = (profilesRes.data || []).map(mapProfileToDashboardAccount);
       setAccounts(mapped);
+
+      if (statsRes.success && statsRes.data) {
+        setServerStats(statsRes.data);
+      }
     } catch (err) {
-      setLoadError(err?.message || 'Unexpected error loading accounts.');
+      setLoadError(err?.message || 'Unexpected error loading dashboard accounts.');
     } finally {
       setLoading(false);
     }
@@ -461,9 +476,45 @@ export default function Dashboard({ onNavigate = () => {} }) {
     loadAccounts();
   }, [loadAccounts]);
 
-  // Snapshot counts (live from the data)
-  const stats = useMemo(
-    () => [
+  // Snapshot counts: derived from database-authoritative aggregate query,
+  // falling back gracefully to client collection in offline/preview environments.
+  const stats = useMemo(() => {
+    if (serverStats) {
+      return [
+        {
+          label: 'Total Accounts',
+          value: Number(serverStats.totalAccounts ?? accounts.length),
+          icon: 'group',
+          iconClass: 'bg-[#EFF4FF] text-[#5170ff]',
+        },
+        {
+          label: 'Students',
+          value: Number(
+            serverStats.studentAccounts ??
+              accounts.filter((a) => a.role === 'Students' || a.role === 'Student').length
+          ),
+          icon: 'school',
+          iconClass: 'bg-[#F3F0FF] text-[#7C3AED]',
+        },
+        {
+          label: 'Faculty',
+          value: Number(serverStats.facultyAccounts ?? accounts.filter((a) => a.role === 'Faculty').length),
+          icon: 'badge',
+          iconClass: 'bg-[#E6F4F4] text-[#0D6E6E]',
+        },
+        {
+          label: 'Suspended',
+          value: Number(
+            serverStats.suspendedAccounts ??
+              accounts.filter((a) => a.status === 'Suspended').length
+          ),
+          icon: 'block',
+          iconClass: 'bg-[#FEF2F2] text-[#B91C1C]',
+        },
+      ];
+    }
+
+    return [
       {
         label: 'Total Accounts',
         value: accounts.length,
@@ -488,9 +539,8 @@ export default function Dashboard({ onNavigate = () => {} }) {
         icon: 'block',
         iconClass: 'bg-[#FEF2F2] text-[#B91C1C]',
       },
-    ],
-    [accounts]
-  );
+    ];
+  }, [accounts, serverStats]);
 
   const filteredAccounts = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -499,12 +549,15 @@ export default function Dashboard({ onNavigate = () => {} }) {
         !q ||
         acc.name.toLowerCase().includes(q) ||
         acc.email.toLowerCase().includes(q) ||
-        (acc.username && acc.username.toLowerCase().includes(q));
+        (acc.username && acc.username.toLowerCase().includes(q)) ||
+        (acc.idNumber && acc.idNumber.toLowerCase().includes(q)) ||
+        (acc.department && acc.department.toLowerCase().includes(q));
 
       const matchesRole =
         selectedRole === 'All Roles' ||
-        acc.role === selectedRole ||
-        (selectedRole === 'Students' && acc.role === 'Student');
+        acc.role.toLowerCase() === selectedRole.toLowerCase() ||
+        (selectedRole === 'Students' && acc.role.toLowerCase() === 'student') ||
+        (selectedRole === 'Student' && acc.role.toLowerCase() === 'students');
 
       const matchesStatus =
         selectedStatus === 'All Statuses' ||
@@ -526,19 +579,40 @@ export default function Dashboard({ onNavigate = () => {} }) {
   };
 
   const handleApproveAccount = async (accountToApprove) => {
+    if (isActionPending) return;
     setActionError(null);
-    if (isSupabaseConfigured()) {
-      const res = await adminApproveFaculty(accountToApprove.id);
-      if (res.error || !res.data?.success) {
-        setActionError(res.error?.message || res.data?.error || res.data?.message || 'Failed to approve account in database.');
-        return;
-      }
-    }
+    setIsActionPending(true);
 
-    const updatedAccount = { ...accountToApprove, status: 'Active' };
-    setAccounts((prev) => prev.map((acc) => (acc.id === accountToApprove.id ? updatedAccount : acc)));
-    setModalState({ type: 'approved', account: updatedAccount });
-    showToast(`Faculty registration approved for ${accountToApprove.name}`);
+    try {
+      if (isSupabaseConfigured()) {
+        const res = await adminApproveFaculty(accountToApprove.id);
+        if (res.error || !res.data?.success) {
+          const errMsg =
+            res.error?.message || res.data?.error || res.data?.message || 'Failed to approve account in database.';
+          if (
+            errMsg.toLowerCase().includes('no longer pending') ||
+            errMsg.toLowerCase().includes('already been approved')
+          ) {
+            setActionError(`This application is no longer pending approval (${errMsg}). The dashboard has been refreshed.`);
+            await loadAccounts();
+            setModalState(null);
+            return;
+          }
+          setActionError(errMsg);
+          return;
+        }
+      }
+
+      const updatedAccount = { ...accountToApprove, status: 'Active' };
+      setAccounts((prev) => prev.map((acc) => (acc.id === accountToApprove.id ? updatedAccount : acc)));
+      setModalState({ type: 'approved', account: updatedAccount });
+      showToast(`Faculty registration approved for ${accountToApprove.name}`);
+      if (isSupabaseConfigured()) {
+        loadAccounts();
+      }
+    } finally {
+      setIsActionPending(false);
+    }
   };
 
   const handleDeclineRequest = (account) => setModalState({ type: 'decline', account });
@@ -552,19 +626,37 @@ export default function Dashboard({ onNavigate = () => {} }) {
   };
 
   const handleConfirmDecline = async ({ account, reason, note }) => {
+    if (isActionPending) return;
     setActionError(null);
-    if (isSupabaseConfigured()) {
-      const res = await adminDeclineFaculty(account.id, reason, note);
-      if (res.error || !res.data?.success) {
-        setActionError(res.error?.message || res.data?.error || res.data?.message || 'Failed to decline registration in database.');
-        return;
-      }
-    }
+    setIsActionPending(true);
 
-    const declinedAccount = { ...account, status: 'Declined', declinedReason: reason, declinedNote: note };
-    setAccounts((prev) => prev.filter((acc) => acc.id !== account.id));
-    setModalState({ type: 'declined', account: declinedAccount, reason });
-    showToast(`Registration declined for ${account.name}`);
+    try {
+      if (isSupabaseConfigured()) {
+        const res = await adminDeclineFaculty(account.id, reason, note);
+        if (res.error || !res.data?.success) {
+          const errMsg =
+            res.error?.message || res.data?.error || res.data?.message || 'Failed to decline registration in database.';
+          if (errMsg.toLowerCase().includes('no longer pending')) {
+            setActionError(`This application is no longer pending approval (${errMsg}). The dashboard has been refreshed.`);
+            await loadAccounts();
+            setModalState(null);
+            return;
+          }
+          setActionError(errMsg);
+          return;
+        }
+      }
+
+      const declinedAccount = { ...account, status: 'Declined', declinedReason: reason, declinedNote: note };
+      setAccounts((prev) => prev.filter((acc) => acc.id !== account.id));
+      setModalState({ type: 'declined', account: declinedAccount, reason });
+      showToast(`Registration declined for ${account.name}`);
+      if (isSupabaseConfigured()) {
+        loadAccounts();
+      }
+    } finally {
+      setIsActionPending(false);
+    }
   };
 
   const handleCloseModal = () => setModalState(null);
@@ -829,8 +921,25 @@ export default function Dashboard({ onNavigate = () => {} }) {
                 </tr>
               ) : paginatedAccounts.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-10 px-6 text-center text-sm text-[#6E6858]">
-                    No accounts found matching your search or filters.
+                  <td colSpan={6} className="py-12 px-6 text-center text-sm text-[#6E6858]">
+                    <div className="flex flex-col items-center gap-1.5">
+                      <span className="material-symbols-outlined text-[28px] text-[#6E6858]/50">person_search</span>
+                      <span className="font-medium">No accounts found matching your search or filters.</span>
+                      {(searchQuery || selectedRole !== 'All Roles' || selectedStatus !== 'All Statuses') && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearchQuery('');
+                            setSelectedRole('All Roles');
+                            setSelectedStatus('All Statuses');
+                            setCurrentPage(1);
+                          }}
+                          className="text-xs text-[#5170ff] hover:underline font-semibold mt-1 cursor-pointer"
+                        >
+                          Clear all filters
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ) : (

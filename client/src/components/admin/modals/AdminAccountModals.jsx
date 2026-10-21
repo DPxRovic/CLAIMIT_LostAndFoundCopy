@@ -170,20 +170,37 @@ export function ManageAccountModal({
         </div>
 
         {/* Footer Action Buttons (same footer bar as ReportDetailsModal) */}
-        <div className="px-5 py-3 border-t border-[#E8E4D8] grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => onDeclineRequest?.(account)}
-            className="inline-flex items-center justify-center gap-1.5 py-1.5 px-4 rounded-lg border border-[#FECACA] bg-white hover:bg-[#FEF2F2] text-[#DC2626] text-sm font-medium cursor-pointer transition-colors"
-          >
-            <span className="material-symbols-outlined text-[18px]">do_not_disturb_on</span>
-            Decline request
-          </button>
+        <div className="px-5 py-3 border-t border-[#E8E4D8]">
+          {account.status === 'Pending approval' ? (
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => onDeclineRequest?.(account)}
+                className="inline-flex items-center justify-center gap-1.5 py-1.5 px-4 rounded-lg border border-[#FECACA] bg-white hover:bg-[#FEF2F2] text-[#DC2626] text-sm font-medium cursor-pointer transition-colors"
+              >
+                <span className="material-symbols-outlined text-[18px]">do_not_disturb_on</span>
+                Decline request
+              </button>
 
-          <button type="button" onClick={() => onApprove?.(account)} className={primaryBtnClass}>
-            <span className="material-symbols-outlined text-[18px]">check</span>
-            Approve account
-          </button>
+              <button type="button" onClick={() => onApprove?.(account)} className={primaryBtnClass}>
+                <span className="material-symbols-outlined text-[18px]">check</span>
+                Approve account
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-[#6E6858]">
+                Account status: <strong className="text-[#23261F]">{account.status}</strong>. Review actions are only available for pending applications.
+              </p>
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-1.5 rounded-lg border border-[#E8E4D8] bg-white hover:bg-[#F3F4F6] text-xs font-semibold text-[#23261F] cursor-pointer shrink-0"
+              >
+                Close
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
