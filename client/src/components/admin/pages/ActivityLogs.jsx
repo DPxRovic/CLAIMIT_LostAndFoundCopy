@@ -9,7 +9,16 @@ const ITEMS_PER_PAGE = 10;
 const ACTOR_OPTIONS = [
   { value: 'all', label: 'All Actors' },
   { value: 'admin', label: 'Admin Actions' },
+  { value: 'user', label: 'User Actions' },
   { value: 'system', label: 'System Events' },
+];
+
+const ACTION_TYPE_OPTIONS = [
+  { value: 'all', label: 'All Events' },
+  { value: 'auth', label: 'Sign In / Out' },
+  { value: 'accounts', label: 'Account Management' },
+  { value: 'profile', label: 'Profile & Security' },
+  { value: 'lists', label: 'List Configuration' },
 ];
 
 function getPageList(current, total) {
@@ -101,29 +110,61 @@ function mapAuditLogToDisplayItem(raw) {
     : '';
 
   const targetName = targetObj.full_name || raw.targetName || '';
-  const actionKey = raw.action || '';
+  const actionKey = (raw.action || '').toLowerCase();
   let actionText = '';
+  let badgeType = 'info'; // 'success' | 'danger' | 'warning' | 'info' | 'neutral'
 
   if (actionKey === 'suspend_account') {
     actionText = `Suspended account: ${targetName || 'User'}${raw.reason ? ` (${raw.reason})` : ''}`;
+    badgeType = 'danger';
   } else if (actionKey === 'reactivate_account') {
     actionText = `Reactivated account: ${targetName || 'User'}`;
+    badgeType = 'success';
   } else if (actionKey === 'deactivate_account') {
     actionText = `Deactivated account: ${targetName || 'User'}${raw.reason ? ` (${raw.reason})` : ''}`;
+    badgeType = 'warning';
   } else if (actionKey === 'approve_faculty') {
     actionText = `Approved faculty registration: ${targetName || 'Faculty Member'}`;
+    badgeType = 'success';
   } else if (actionKey === 'decline_faculty') {
     actionText = `Declined faculty registration: ${targetName || 'Faculty Member'}${raw.reason ? ` (${raw.reason})` : ''}`;
+    badgeType = 'danger';
   } else if (actionKey === 'create_account') {
     actionText = raw.notes || `Created account: ${targetName || 'User'}`;
+    badgeType = 'info';
   } else if (actionKey === 'edit_details') {
     actionText = `Updated user details for ${targetName || 'User'}`;
+    badgeType = 'info';
   } else if (actionKey === 'reset_password') {
     actionText = `Generated temporary password for ${targetName || 'User'}`;
+    badgeType = 'warning';
   } else if (actionKey === 'manage_lists') {
     actionText = raw.notes || 'Modified list configuration options';
+    badgeType = 'neutral';
+  } else if (actionKey === 'login') {
+    actionText = raw.notes || `Signed in: ${actorName}`;
+    badgeType = 'success';
+  } else if (actionKey === 'logout') {
+    actionText = raw.notes || `Signed out: ${actorName}`;
+    badgeType = 'neutral';
+  } else if (actionKey === 'register') {
+    actionText = raw.notes || `New account registered: ${targetName || actorName}`;
+    badgeType = 'info';
+  } else if (actionKey === 'update_profile') {
+    actionText = raw.notes || `Updated profile details: ${targetName || actorName}`;
+    badgeType = 'info';
+  } else if (actionKey === 'upload_avatar') {
+    actionText = raw.notes || `Uploaded new profile photo: ${targetName || actorName}`;
+    badgeType = 'info';
+  } else if (actionKey === 'change_password') {
+    actionText = raw.notes || `Changed password: ${targetName || actorName}`;
+    badgeType = 'warning';
+  } else if (actionKey === 'reset_password_completed') {
+    actionText = raw.notes || `Completed password recovery: ${targetName || actorName}`;
+    badgeType = 'success';
   } else {
     actionText = raw.notes || raw.action || raw.reason || 'System operation recorded';
+    badgeType = 'neutral';
   }
 
   return {
@@ -132,6 +173,8 @@ function mapAuditLogToDisplayItem(raw) {
     actorName,
     actorRole,
     action: actionText,
+    actionKey,
+    badgeType,
     raw,
   };
 }
@@ -142,6 +185,7 @@ export default function ActivityLogs() {
   const [loadError, setLoadError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [actorFilter, setActorFilter] = useState('all');
+  const [actionTypeFilter, setActionTypeFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -186,14 +230,44 @@ export default function ActivityLogs() {
         log.action.toLowerCase().includes(query) ||
         log.timestamp.toLowerCase().includes(query);
 
-      const matchesActor =
-        actorFilter === 'all' ||
-        (actorFilter === 'admin' && log.actorRole.includes('Admin')) ||
-        (actorFilter === 'system' && (log.actorName === 'System' || !log.actorRole.includes('Admin')));
+      const isLogAdmin = log.actorRole.toLowerCase().includes('admin');
+      const isLogSystem = log.actorName === 'System' || (!log.actorRole && !isLogAdmin);
+      const isLogUser = !isLogAdmin && !isLogSystem;
 
-      return matchesSearch && matchesActor;
+      let matchesActor = true;
+      if (actorFilter === 'admin') matchesActor = isLogAdmin;
+      else if (actorFilter === 'user') matchesActor = isLogUser;
+      else if (actorFilter === 'system') matchesActor = isLogSystem;
+
+      let matchesAction = true;
+      const k = log.actionKey || '';
+      if (actionTypeFilter === 'auth') {
+        matchesAction = k === 'login' || k === 'logout' || k === 'register';
+      } else if (actionTypeFilter === 'accounts') {
+        matchesAction = [
+          'suspend_account',
+          'reactivate_account',
+          'deactivate_account',
+          'approve_faculty',
+          'decline_faculty',
+          'create_account',
+          'edit_details',
+          'reset_password',
+        ].includes(k);
+      } else if (actionTypeFilter === 'profile') {
+        matchesAction = [
+          'update_profile',
+          'upload_avatar',
+          'change_password',
+          'reset_password_completed',
+        ].includes(k);
+      } else if (actionTypeFilter === 'lists') {
+        matchesAction = k === 'manage_lists';
+      }
+
+      return matchesSearch && matchesActor && matchesAction;
     });
-  }, [logs, searchQuery, actorFilter]);
+  }, [logs, searchQuery, actorFilter, actionTypeFilter]);
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filteredLogs.length / ITEMS_PER_PAGE));
@@ -255,7 +329,7 @@ export default function ActivityLogs() {
         </div>
       )}
 
-      {/* Search and filter */}
+      {/* Search and filters */}
       <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
         <div className="relative flex items-center flex-1 max-w-xl">
           <span
@@ -266,7 +340,7 @@ export default function ActivityLogs() {
           </span>
           <input
             className="w-full pl-9 pr-3.5 py-2 text-sm bg-white border border-[#E8E4D8] rounded-lg text-[#23261F] placeholder:text-[#6E6858]/60 focus:outline-none focus:border-[#5170ff] focus:ring-2 focus:ring-[#5170ff]/20"
-            placeholder="Search activity logs, admins, or actions"
+            placeholder="Search activity logs, actors, or actions"
             aria-label="Search activity logs"
             type="text"
             value={searchQuery}
@@ -287,26 +361,52 @@ export default function ActivityLogs() {
           )}
         </div>
 
-        <div className="relative shrink-0">
-          <select
-            value={actorFilter}
-            onChange={(e) => {
-              setActorFilter(e.target.value);
-              setCurrentPage(1);
-            }}
-            aria-label="Filter by actor"
-            className="appearance-none w-full pl-3.5 pr-9 py-2 text-sm bg-white border border-[#E8E4D8] rounded-lg text-[#23261F] font-medium focus:outline-none focus:border-[#5170ff] focus:ring-2 focus:ring-[#5170ff]/20 cursor-pointer"
-          >
-            {ACTOR_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-          <span
-            className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-[18px] text-[#6E6858] pointer-events-none"
-            aria-hidden="true"
-          >
-            expand_more
-          </span>
+        <div className="flex items-center gap-2.5 shrink-0 flex-wrap sm:flex-nowrap">
+          {/* Action Type Filter */}
+          <div className="relative shrink-0 min-w-[150px]">
+            <select
+              value={actionTypeFilter}
+              onChange={(e) => {
+                setActionTypeFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              aria-label="Filter by action type"
+              className="appearance-none w-full pl-3 pr-8 py-2 text-xs sm:text-sm bg-white border border-[#E8E4D8] rounded-lg text-[#23261F] font-medium focus:outline-none focus:border-[#5170ff] focus:ring-2 focus:ring-[#5170ff]/20 cursor-pointer"
+            >
+              {ACTION_TYPE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <span
+              className="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-[18px] text-[#6E6858] pointer-events-none"
+              aria-hidden="true"
+            >
+              expand_more
+            </span>
+          </div>
+
+          {/* Actor Filter */}
+          <div className="relative shrink-0 min-w-[140px]">
+            <select
+              value={actorFilter}
+              onChange={(e) => {
+                setActorFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              aria-label="Filter by actor"
+              className="appearance-none w-full pl-3 pr-8 py-2 text-xs sm:text-sm bg-white border border-[#E8E4D8] rounded-lg text-[#23261F] font-medium focus:outline-none focus:border-[#5170ff] focus:ring-2 focus:ring-[#5170ff]/20 cursor-pointer"
+            >
+              {ACTOR_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <span
+              className="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-[18px] text-[#6E6858] pointer-events-none"
+              aria-hidden="true"
+            >
+              expand_more
+            </span>
+          </div>
         </div>
       </div>
 
@@ -336,7 +436,7 @@ export default function ActivityLogs() {
               ) : paginatedLogs.length === 0 ? (
                 <tr>
                   <td colSpan={3} className="py-10 px-6 text-center text-sm text-[#6E6858]">
-                    {searchQuery || actorFilter !== 'all'
+                    {searchQuery || actorFilter !== 'all' || actionTypeFilter !== 'all'
                       ? 'No activity logs found matching your search or filter.'
                       : 'No activity logs recorded yet.'}
                   </td>
@@ -352,7 +452,24 @@ export default function ActivityLogs() {
                       {log.actorRole && <span className="text-[#6E6858] text-xs"> {log.actorRole}</span>}
                     </td>
                     <td className="py-3 px-6 leading-relaxed text-[#23261F]">
-                      {log.action}
+                      <div className="flex items-center gap-2">
+                        {log.badgeType === 'success' && (
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" title="Success / Auth event" />
+                        )}
+                        {log.badgeType === 'danger' && (
+                          <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" title="Restriction / Decline event" />
+                        )}
+                        {log.badgeType === 'warning' && (
+                          <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" title="Credential / Status event" />
+                        )}
+                        {log.badgeType === 'info' && (
+                          <span className="w-2 h-2 rounded-full bg-[#5170ff] shrink-0" title="Management / Profile event" />
+                        )}
+                        {log.badgeType === 'neutral' && (
+                          <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0" title="System event" />
+                        )}
+                        <span>{log.action}</span>
+                      </div>
                     </td>
                   </tr>
                 ))

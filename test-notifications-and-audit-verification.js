@@ -159,6 +159,69 @@ console.log('\n--- Test 5: UI Bell Component & Popover Contract Verification ---
   console.log('✓ Notification bell in both Responsiveness.jsx and AdminMainForm.jsx correctly wired to Notifications panel.');
 }
 
+// -----------------------------------------------------------------------------
+// TEST 6: Authentication Auditing (Login & Logout Event Tracking)
+// -----------------------------------------------------------------------------
+console.log('\n--- Test 6: Authentication Auditing for Successful Login & Logout ---');
+{
+  const authContextPath = path.resolve('client/src/context/AuthContext.jsx');
+  const authCode = fs.readFileSync(authContextPath, 'utf8');
+
+  // Verify recordActivityLog is imported in AuthContext
+  assert.match(authCode, /recordActivityLog/);
+
+  // Verify login records activity log
+  assert.match(authCode, /action:\s*['"]login['"]/);
+
+  // Verify logout records activity log before signOut
+  assert.match(authCode, /action:\s*['"]logout['"]/);
+  const logoutFnIndex = authCode.indexOf('const logout = useCallback(');
+  assert.ok(logoutFnIndex > 0, 'logout function must exist');
+  const logoutBody = authCode.slice(logoutFnIndex, logoutFnIndex + 1200);
+  const logIndex = logoutBody.indexOf("action: 'logout'");
+  const signOutIndex = logoutBody.indexOf('supabase.auth.signOut()');
+  assert.ok(logIndex > 0, 'logout action must be logged');
+  assert.ok(signOutIndex > 0, 'signOut must be called');
+  assert.ok(logIndex < signOutIndex, 'recordActivityLog for logout must be invoked before supabase.auth.signOut()');
+
+  console.log('✓ Authentication auditing correctly records login and logout events with proper timing.');
+}
+
+// -----------------------------------------------------------------------------
+// TEST 7: ActivityLogs Interface Improvements & Action Type Filtering
+// -----------------------------------------------------------------------------
+console.log('\n--- Test 7: Activity Logs Interface Filters & Formatting ---');
+{
+  const activityLogsPath = path.resolve('client/src/components/admin/pages/ActivityLogs.jsx');
+  const activityLogsCode = fs.readFileSync(activityLogsPath, 'utf8');
+
+  // Verify action type options exist
+  assert.match(activityLogsCode, /ACTION_TYPE_OPTIONS/);
+  assert.match(activityLogsCode, /actionTypeFilter/);
+
+  // Verify action mapping covers login, logout, and profile operations
+  assert.match(activityLogsCode, /actionKey === 'login'/);
+  assert.match(activityLogsCode, /actionKey === 'logout'/);
+  assert.match(activityLogsCode, /actionKey === 'update_profile'/);
+
+  console.log('✓ ActivityLogs interface formats authentication events and provides action type filters.');
+}
+
+// -----------------------------------------------------------------------------
+// TEST 8: Missing Notifications Table Graceful Fallback Contract
+// -----------------------------------------------------------------------------
+console.log('\n--- Test 8: Notifications Table Missing Schema Cache Defense ---');
+{
+  const supabaseLibPath = path.resolve('client/src/lib/supabase.js');
+  const supabaseLibCode = fs.readFileSync(supabaseLibPath, 'utf8');
+
+  // Verify adminFetchNotifications handles schema cache error gracefully
+  assert.match(supabaseLibCode, /tableMissing:\s*true/);
+  assert.match(supabaseLibCode, /getLocalNotifications\(\)/);
+
+  console.log('✓ Notifications gracefully fall back to local cache when database table is not yet created.');
+}
+
 console.log('\n=============================================================================');
 console.log('ALL NOTIFICATION & ACTIVITY LOG VERIFICATION TESTS PASSED SUCCESSFULLY!');
 console.log('=============================================================================');

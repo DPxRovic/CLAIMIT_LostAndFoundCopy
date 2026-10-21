@@ -20,7 +20,25 @@ export default function Login({ onForgotPassword, onRegister, onLoginSuccess }) 
   const { login, isConfigured, setDevPreviewRole, error: contextError, schemaMissing } = useAuth();
 
   // Internal view state for standalone usage when props are not provided
-  const [internalView, setInternalView] = useState('login'); // 'login' | 'register-student' | 'register-faculty' | 'forgot-password'
+  const [internalView, setInternalView] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash || '';
+      const search = window.location.search || '';
+      if (hash.includes('reset-password') || hash.includes('type=recovery') || search.includes('type=recovery')) {
+        return 'reset-password';
+      }
+      if (hash.includes('forgot-password')) {
+        return 'forgot-password';
+      }
+      if (hash.includes('register-student')) {
+        return 'register-student';
+      }
+      if (hash.includes('register-faculty')) {
+        return 'register-faculty';
+      }
+    }
+    return 'login';
+  });
   
   const [usernameOrEmail, setUsernameOrEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -33,6 +51,27 @@ export default function Login({ onForgotPassword, onRegister, onLoginSuccess }) 
 
   const usernameOrEmailRef = useRef(null);
   const passwordRef = useRef(null);
+
+  // Sync internalView with URL hash changes
+  useEffect(() => {
+    const handleHash = () => {
+      if (typeof window !== 'undefined') {
+        const hash = window.location.hash || '';
+        const search = window.location.search || '';
+        if (hash.includes('reset-password') || hash.includes('type=recovery') || search.includes('type=recovery')) {
+          setInternalView('reset-password');
+        } else if (hash.includes('forgot-password')) {
+          setInternalView('forgot-password');
+        } else if (hash.includes('register-student')) {
+          setInternalView('register-student');
+        } else if (hash.includes('register-faculty')) {
+          setInternalView('register-faculty');
+        }
+      }
+    };
+    window.addEventListener('hashchange', handleHash);
+    return () => window.removeEventListener('hashchange', handleHash);
+  }, []);
 
   // Sync context error if present
   useEffect(() => {
@@ -152,7 +191,28 @@ export default function Login({ onForgotPassword, onRegister, onLoginSuccess }) 
   if (internalView === 'forgot-password') {
     return (
       <AuthFlow
-        onNavigateToLogin={() => setInternalView('login')}
+        initialStep="forgot"
+        onNavigateToLogin={() => {
+          if (typeof window !== 'undefined' && window.location.hash) {
+            window.history.replaceState(null, '', window.location.pathname);
+          }
+          setInternalView('login');
+        }}
+      />
+    );
+  }
+
+  // If switched to reset password view directly (via link or hash)
+  if (internalView === 'reset-password') {
+    return (
+      <AuthFlow
+        initialStep="reset"
+        onNavigateToLogin={() => {
+          if (typeof window !== 'undefined' && window.location.hash) {
+            window.history.replaceState(null, '', window.location.pathname);
+          }
+          setInternalView('login');
+        }}
       />
     );
   }

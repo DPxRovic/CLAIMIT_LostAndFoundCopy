@@ -90,7 +90,7 @@ export default function DatabaseSchemaNotice({ projectId = 'fqehjgpksojjwdjkzjdh
               </p>
 
               <div className="p-3 bg-[#f8f9ff] rounded-xl border border-[#E8E4D8] space-y-2">
-                <p className="font-semibold text-[#23261F]">How to run the migration:</p>
+                <p className="font-semibold text-[#23261F]">How to run the migrations:</p>
                 <ol className="list-decimal list-inside space-y-1 pl-1">
                   <li>
                     Open the{' '}
@@ -104,8 +104,20 @@ export default function DatabaseSchemaNotice({ projectId = 'fqehjgpksojjwdjkzjdh
                     </a>
                   </li>
                   <li>Click <strong>New query</strong></li>
-                  <li>Open the file in this workspace: <br /><code className="font-mono bg-white px-2 py-0.5 rounded border border-[#E8E4D8] inline-block mt-1 font-semibold text-[#23261F]">{sqlFilePath}</code></li>
-                  <li>Copy and paste its contents into the editor, then click <strong>Run</strong></li>
+                  <li>
+                    Run the core schema migration:
+                    <br />
+                    <code className="font-mono bg-white px-2 py-0.5 rounded border border-[#E8E4D8] inline-block mt-0.5 font-semibold text-[#23261F]">
+                      supabase/migrations/20261019000001_create_account_schema.sql
+                    </code>
+                  </li>
+                  <li>
+                    Run the notifications & audit fixes migration:
+                    <br />
+                    <code className="font-mono bg-white px-2 py-0.5 rounded border border-[#E8E4D8] inline-block mt-0.5 font-semibold text-[#23261F]">
+                      supabase/migrations/20261021000002_notifications_and_audit_fixes.sql
+                    </code>
+                  </li>
                 </ol>
               </div>
 

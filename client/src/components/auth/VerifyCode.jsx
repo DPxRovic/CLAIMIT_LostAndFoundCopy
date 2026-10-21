@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
  * @param {string} [props.email='student@ucc.edu.ph'] - The recipient email displayed in the prompt
  * @param {string} [props.initialMessage] - Optional feedback message from previous step
  * @param {() => void} [props.onBackToLogin] - Callback when clicking the Back button
+ * @param {() => void} [props.onBackToEmail] - Optional callback to edit the email address
  * @param {(code: string) => void} [props.onCodeVerified] - Callback when verification is successful (triggers reset password step)
  * @param {() => void} [props.onResend] - Callback when resending code
  */
@@ -17,6 +18,7 @@ export default function VerifyCode({
   email = 'student@ucc.edu.ph',
   initialMessage,
   onBackToLogin,
+  onBackToEmail,
   onCodeVerified,
   onResend,
 }) {
@@ -259,10 +261,19 @@ export default function VerifyCode({
           <h1 className="text-3xl font-bold tracking-tight text-[#23261F]">
             Enter code
           </h1>
-          <p className="mt-2 text-base text-[#6E6858] leading-relaxed max-w-[340px]">
-            We sent a 6-digit code to{' '}
-            <span className="font-semibold text-[#23261F]">{email}</span>.
+          <p className="mt-2 text-base text-[#6E6858] leading-relaxed max-w-[360px]">
+            If an account is associated with{' '}
+            <span className="font-semibold text-[#23261F]">{email}</span>, a 6-digit recovery code was sent to your inbox.
           </p>
+          {onBackToEmail && (
+            <button
+              type="button"
+              onClick={onBackToEmail}
+              className="mt-2 text-xs font-semibold text-[#5170ff] hover:underline cursor-pointer inline-flex items-center gap-1"
+            >
+              <span>Need to fix a typo? Change email address</span>
+            </button>
+          )}
         </div>
 
         {/* 6-digit Code Input Form */}

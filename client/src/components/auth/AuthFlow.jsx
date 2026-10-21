@@ -12,14 +12,15 @@ import PasswordResetSuccess from './PasswordResetSuccess.jsx';
  * Step 3: ResetPassword (submit new password)
  * Step 4: PasswordResetSuccess (confirmation & return to login)
  */
-export default function AuthFlow({ onNavigateToLogin }) {
-  const { logout } = useAuth();
-  const [currentStep, setCurrentStep] = useState('forgot');
-  const [userEmail, setUserEmail] = useState('');
+export default function AuthFlow({ onNavigateToLogin, initialStep = 'forgot', initialEmail = '' }) {
+  const { logout, clearPasswordRecovery } = useAuth();
+  const [currentStep, setCurrentStep] = useState(initialStep);
+  const [userEmail, setUserEmail] = useState(initialEmail);
   const [initialMessage, setInitialMessage] = useState('');
 
   const handleReturnToLogin = async () => {
     try {
+      if (clearPasswordRecovery) clearPasswordRecovery();
       await logout();
     } catch {
       // Ignored
@@ -34,6 +35,7 @@ export default function AuthFlow({ onNavigateToLogin }) {
       {/* Step 1: Request Password Reset */}
       {currentStep === 'forgot' && (
         <ForgotPassword
+          initialEmail={userEmail}
           onBackToLogin={handleReturnToLogin}
           onProceedToCode={(email, message) => {
             setUserEmail(email);
@@ -49,6 +51,7 @@ export default function AuthFlow({ onNavigateToLogin }) {
           email={userEmail}
           initialMessage={initialMessage}
           onBackToLogin={handleReturnToLogin}
+          onBackToEmail={() => setCurrentStep('forgot')}
           onCodeVerified={() => setCurrentStep('reset')}
         />
       )}

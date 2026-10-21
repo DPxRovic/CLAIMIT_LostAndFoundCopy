@@ -7,12 +7,13 @@ import { useAuth } from '../../context/AuthContext.jsx';
  * Initiates Supabase Auth password recovery flow with direct validation and clear feedback.
  * 
  * @param {Object} props
+ * @param {string} [props.initialEmail] - Optional initial email to pre-fill
  * @param {() => void} [props.onBackToLogin] - Handler to navigate back to login screen
  * @param {(email: string, message?: string) => void} [props.onProceedToCode] - Handler when proceeding to enter verification code
  */
-export default function ForgotPassword({ onBackToLogin, onProceedToCode }) {
+export default function ForgotPassword({ initialEmail = '', onBackToLogin, onProceedToCode }) {
   const { requestPasswordReset } = useAuth();
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(initialEmail || '');
   const [fieldError, setFieldError] = useState('');
   const [serverError, setServerError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);

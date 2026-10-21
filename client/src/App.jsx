@@ -4,6 +4,8 @@ import Login from './components/auth/Login.jsx';
 import AdminMainForm from './components/admin/Responsiveness.jsx';
 import MainForm_User from './components/user/MainForm_User.jsx';
 import DatabaseSchemaNotice from './components/shared/DatabaseSchemaNotice.jsx';
+import ResetPassword from './components/auth/ResetPassword.jsx';
+import PasswordResetSuccess from './components/auth/PasswordResetSuccess.jsx';
 
 /**
  * ClaimIt Loading Screen
@@ -39,8 +41,9 @@ function AuthLoadingScreen() {
  * Main application container containing role-based routing and session guards.
  */
 function AppContent() {
-  const { user, role, status, loading, logout, devPreviewMode, setDevPreviewRole, schemaMissing } = useAuth();
+  const { user, role, status, loading, logout, devPreviewMode, setDevPreviewRole, schemaMissing, isPasswordRecovery, clearPasswordRecovery } = useAuth();
   const [adminViewMode, setAdminViewMode] = useState('admin'); // 'admin' | 'user-preview'
+  const [recoveryStep, setRecoveryStep] = useState('reset'); // 'reset' | 'success'
   const [adminPath, setAdminPath] = useState(() => {
     if (typeof window !== 'undefined' && window.location.hash) {
       const h = window.location.hash.replace('#', '').trim();
@@ -65,6 +68,42 @@ function AppContent() {
 
   if (loading) {
     return <AuthLoadingScreen />;
+  }
+
+  // Password Recovery Flow — takes precedence when activated via email link or verified OTP
+  if (isPasswordRecovery) {
+    if (recoveryStep === 'success') {
+      return (
+        <PasswordResetSuccess
+          onBackToLogin={async () => {
+            setRecoveryStep('reset');
+            clearPasswordRecovery();
+            try {
+              await logout();
+            } catch {
+              // Ignore
+            }
+          }}
+        />
+      );
+    }
+
+    return (
+      <ResetPassword
+        onSuccess={() => {
+          setRecoveryStep('success');
+        }}
+        onCancel={async () => {
+          setRecoveryStep('reset');
+          clearPasswordRecovery();
+          try {
+            await logout();
+          } catch {
+            // Ignore
+          }
+        }}
+      />
+    );
   }
 
   // Not authenticated or account is not Active -> Show Login

@@ -8,6 +8,7 @@ import {
   uploadUserAvatar as apiUploadAvatar,
   updateUserEmail as apiUpdateEmail,
   verifyAndChangePassword as apiChangePassword,
+  recordActivityLog,
 } from '../lib/supabase.js';
 
 const AuthContext = createContext(null);
@@ -22,6 +23,18 @@ export function AuthProvider({ children }) {
   const [devPreviewMode, setDevPreviewMode] = useState(false);
 
   const [schemaMissing, setSchemaMissing] = useState(false);
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash || '';
+      const search = window.location.search || '';
+      return (
+        hash.includes('type=recovery') ||
+        hash.includes('reset-password') ||
+        search.includes('type=recovery')
+      );
+    }
+    return false;
+  });
 
   // Reference to prevent race conditions from overlapping async profile fetches
   const currentUserIdRef = useRef(null);
@@ -156,6 +169,13 @@ export function AuthProvider({ children }) {
 
     async function initAuth() {
       try {
+        const hash = typeof window !== 'undefined' ? (window.location.hash || '') : '';
+        const search = typeof window !== 'undefined' ? (window.location.search || '') : '';
+        const isRecoveryFlow = hash.includes('type=recovery') || hash.includes('reset-password') || search.includes('type=recovery');
+        if (isRecoveryFlow) {
+          setIsPasswordRecovery(true);
+        }
+
         const { data: { session: initialSession }, error: sessionError } = await supabase.auth.getSession();
         
         if (!isMounted) return;
@@ -175,8 +195,8 @@ export function AuthProvider({ children }) {
           
           if (!isMounted) return;
 
-          // Verify status on initial restoration
-          if (loadedProfile && loadedProfile.status !== 'Active') {
+          // Verify status on initial restoration only if NOT in password recovery flow
+          if (!isRecoveryFlow && loadedProfile && loadedProfile.status !== 'Active') {
             await supabase.auth.signOut();
             currentUserIdRef.current = null;
             setSession(null);
@@ -212,10 +232,34 @@ export function AuthProvider({ children }) {
 
     initAuth();
 
+    // Listen for hash changes to detect recovery URL
+    const handleHashChange = () => {
+      if (typeof window !== 'undefined') {
+        const h = window.location.hash || '';
+        const s = window.location.search || '';
+        if (h.includes('type=recovery') || h.includes('reset-password') || s.includes('type=recovery')) {
+          setIsPasswordRecovery(true);
+        }
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+
     // Subscribe to auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, newSession) => {
         if (!isMounted) return;
+
+        // Specifically detect password recovery events emitted by Supabase GoTrue
+        if (event === 'PASSWORD_RECOVERY') {
+          setIsPasswordRecovery(true);
+          if (newSession?.user) {
+            currentUserIdRef.current = newSession.user.id;
+            setSession(newSession);
+            setUser(newSession.user);
+          }
+          setLoading(false);
+          return;
+        }
 
         if (event === 'SIGNED_OUT' || !newSession?.user) {
           currentUserIdRef.current = null;
@@ -235,7 +279,12 @@ export function AuthProvider({ children }) {
             const loadedProfile = await fetchProfileRef.current(newUserId, newSession.user);
             if (!isMounted) return;
 
-            if (loadedProfile && loadedProfile.status !== 'Active') {
+            // Only enforce status lock when NOT actively in password recovery flow
+            const hash = typeof window !== 'undefined' ? (window.location.hash || '') : '';
+            const search = typeof window !== 'undefined' ? (window.location.search || '') : '';
+            const isRecovery = hash.includes('type=recovery') || hash.includes('reset-password') || search.includes('type=recovery');
+
+            if (!isRecovery && loadedProfile && loadedProfile.status !== 'Active') {
               await supabase.auth.signOut();
               currentUserIdRef.current = null;
               setSession(null);
@@ -253,6 +302,7 @@ export function AuthProvider({ children }) {
       isMounted = false;
       currentUserIdRef.current = null;
       subscription.unsubscribe();
+      window.removeEventListener('hashchange', handleHashChange);
     };
   }, [isConfigured]);
 
@@ -324,6 +374,18 @@ export function AuthProvider({ children }) {
       setUser(mockUser);
       setProfile(mockProfile);
       setDevPreviewMode(true);
+
+      recordActivityLog({
+        action: 'login',
+        notes: `${mockProfile.full_name} (${roleToUse}) signed in`,
+        targetUserId: mockUser.id,
+        targetName: mockProfile.full_name,
+        targetRole: roleToUse,
+        actorId: mockUser.id,
+        actorName: mockProfile.full_name,
+        actorRole: roleToUse,
+        metadata: { email: mockEmail, role: roleToUse, preview: true },
+      }).catch(() => {});
 
       return {
         success: true,
@@ -430,6 +492,22 @@ export function AuthProvider({ children }) {
           setError(msg);
           return { success: false, error: msg, status: 'Inactive' };
         }
+
+        const actorName = userProfile?.full_name || userProfile?.username || data.user.email?.split('@')[0] || 'User';
+        const actorRole = userProfile?.role || 'Student';
+
+        // Record successful login audit log
+        recordActivityLog({
+          action: 'login',
+          notes: `${actorName} (${actorRole}) signed in`,
+          targetUserId: data.user.id,
+          targetName: actorName,
+          targetRole: actorRole,
+          actorId: data.user.id,
+          actorName: actorName,
+          actorRole: actorRole,
+          metadata: { email: data.user.email, role: actorRole },
+        }).catch(() => {});
         
         // Return loaded profile along with user
         return {
@@ -495,6 +573,18 @@ export function AuthProvider({ children }) {
         setUser(mockUser);
         setProfile(mockProfile);
       }
+
+      recordActivityLog({
+        action: 'register',
+        notes: `New ${isFacultyRole ? 'Faculty' : 'Student'} registration: ${cleanFullName}`,
+        targetUserId: mockUser.id,
+        targetName: cleanFullName,
+        targetRole: isFacultyRole ? 'Faculty' : 'Student',
+        actorId: mockUser.id,
+        actorName: cleanFullName,
+        actorRole: isFacultyRole ? 'Faculty' : 'Student',
+        metadata: { email: cleanEmail, role: isFacultyRole ? 'Faculty' : 'Student' },
+      }).catch(() => {});
 
       return {
         success: true,
@@ -596,6 +686,18 @@ export function AuthProvider({ children }) {
           }
         }
       }
+
+      recordActivityLog({
+        action: 'register',
+        notes: `New ${isFacultyRole ? 'Faculty' : 'Student'} registration: ${cleanFullName}`,
+        targetUserId: data?.user?.id,
+        targetName: cleanFullName,
+        targetRole: isFacultyRole ? 'Faculty' : 'Student',
+        actorId: data?.user?.id,
+        actorName: cleanFullName,
+        actorRole: isFacultyRole ? 'Faculty' : 'Student',
+        metadata: { email: cleanEmail, role: isFacultyRole ? 'Faculty' : 'Student' },
+      }).catch(() => {});
 
       return {
         success: true,
@@ -706,6 +808,7 @@ export function AuthProvider({ children }) {
         setSession(data.session);
         setUser(data.user);
       }
+      setIsPasswordRecovery(true);
 
       return {
         success: true,
@@ -728,6 +831,7 @@ export function AuthProvider({ children }) {
     }
 
     if (!isConfigured) {
+      setIsPasswordRecovery(false);
       return {
         success: true,
         user: user || { id: 'mock-user' },
@@ -751,6 +855,19 @@ export function AuthProvider({ children }) {
         return { success: false, error: msg };
       }
 
+      setIsPasswordRecovery(false);
+      if (typeof window !== 'undefined' && window.location.hash) {
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+
+      recordActivityLog({
+        action: 'reset_password_completed',
+        notes: `Password reset completed successfully for ${data?.user?.email || user?.email || 'user'}`,
+        targetUserId: data?.user?.id || user?.id,
+        actorId: data?.user?.id || user?.id,
+        metadata: { updated_at: new Date().toISOString() },
+      }).catch(() => {});
+
       return {
         success: true,
         user: data.user,
@@ -764,9 +881,36 @@ export function AuthProvider({ children }) {
     }
   }, [isConfigured, user]);
 
+  const clearPasswordRecovery = useCallback(() => {
+    setIsPasswordRecovery(false);
+    if (typeof window !== 'undefined' && window.location.hash) {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, []);
+
   // Logout operation
   const logout = useCallback(async () => {
     try {
+      const activeUser = user || userRef.current;
+      const activeProfile = profile;
+      if (activeUser || activeProfile) {
+        const actorName = activeProfile?.full_name || activeProfile?.username || activeUser?.email?.split('@')[0] || 'User';
+        const actorRole = activeProfile?.role || 'Student';
+        await recordActivityLog({
+          action: 'logout',
+          notes: `${actorName} (${actorRole}) signed out`,
+          targetUserId: activeUser?.id || null,
+          targetName: actorName,
+          targetRole: actorRole,
+          actorId: activeUser?.id || null,
+          actorName: actorName,
+          actorRole: actorRole,
+          metadata: { email: activeUser?.email, role: actorRole },
+        }).catch((err) => {
+          console.warn('[ClaimIt] Logout audit notice:', err);
+        });
+      }
+
       if (isConfigured) {
         const { error: signOutError } = await supabase.auth.signOut();
         if (signOutError) {
@@ -782,9 +926,13 @@ export function AuthProvider({ children }) {
       setProfile(null);
       setError(null);
       setDevPreviewMode(false);
+      setIsPasswordRecovery(false);
+      if (typeof window !== 'undefined' && window.location.hash) {
+        window.history.replaceState(null, '', window.location.pathname);
+      }
     }
     return { success: true };
-  }, [isConfigured]);
+  }, [isConfigured, user, profile]);
 
   // Manual profile refresh
   const refreshProfile = useCallback(async () => {
@@ -1025,6 +1173,9 @@ export function AuthProvider({ children }) {
     devPreviewMode,
     setDevPreviewRole,
     schemaMissing,
+    isPasswordRecovery,
+    setIsPasswordRecovery,
+    clearPasswordRecovery,
     login,
     register,
     logout,
@@ -1064,6 +1215,9 @@ const DEFAULT_AUTH_STATE = {
   isDeclined: false,
   devPreviewMode: false,
   setDevPreviewRole: () => {},
+  isPasswordRecovery: false,
+  setIsPasswordRecovery: () => {},
+  clearPasswordRecovery: () => {},
   login: async () => ({ success: false, error: 'Authentication not initialized' }),
   register: async () => ({ success: false, error: 'Authentication not initialized' }),
   logout: async () => ({ success: true }),

@@ -7,6 +7,75 @@
     <meta name="description" content="Campus lost and found system with student and faculty authentication, account management, and item recovery tracking." />
     <meta property="og:title" content="ClaimIt - Campus Lost and Found" />
     <meta property="og:description" content="Campus lost and found system with student and faculty authentication, account management, and item recovery tracking." />
+    <script>
+      // Suppress unhandled errors from injected third-party browser extensions (e.g., MetaMask, Web3 wallets)
+      (function() {
+        function isExtensionError(err, source, reason) {
+          try {
+            var combined = '';
+            if (err) {
+              combined += (err.message || '') + ' ' + (err.stack || '') + ' ' + (err.name || '') + ' ';
+            }
+            if (source) combined += source + ' ';
+            if (reason) {
+              if (typeof reason === 'string') {
+                combined += reason + ' ';
+              } else if (reason && typeof reason === 'object') {
+                combined += (reason.message || '') + ' ' + (reason.stack || '') + ' ' + (reason.name || '') + ' ';
+              }
+            }
+            var lower = combined.toLowerCase();
+            return (
+              lower.indexOf('chrome-extension://') !== -1 ||
+              lower.indexOf('moz-extension://') !== -1 ||
+              lower.indexOf('safari-extension://') !== -1 ||
+              lower.indexOf('extension://') !== -1 ||
+              lower.indexOf('metamask') !== -1 ||
+              lower.indexOf('nkbihfbeogaeaoehlefnkodbefgpgknn') !== -1 ||
+              lower.indexOf('inpage.js') !== -1 ||
+              lower.indexOf('failed to connect to metamask') !== -1
+            );
+          } catch (e) {
+            return false;
+          }
+        }
+
+        window.addEventListener(
+          'error',
+          function(e) {
+            if (isExtensionError(e.error, e.filename, null)) {
+              e.preventDefault();
+              e.stopImmediatePropagation();
+              return true;
+            }
+          },
+          true
+        );
+
+        window.addEventListener(
+          'unhandledrejection',
+          function(e) {
+            if (isExtensionError(null, null, e.reason)) {
+              e.preventDefault();
+              e.stopImmediatePropagation();
+              return true;
+            }
+          },
+          true
+        );
+
+        var prevOnError = window.onerror;
+        window.onerror = function(msg, url, line, col, error) {
+          if (isExtensionError(error, url, msg)) {
+            return true;
+          }
+          if (typeof prevOnError === 'function') {
+            return prevOnError.apply(this, arguments);
+          }
+          return false;
+        };
+      })();
+    </script>
     <!-- Tailwind CDN for instant rendering -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />

@@ -45,7 +45,7 @@ CREATE POLICY "notifications_insert_policy"
   ON public.notifications
   FOR INSERT
   TO authenticated
-  WITH CHECK (user_id = auth.uid() OR public.is_admin());
+  WITH CHECK (auth.uid() IS NOT NULL OR user_id = auth.uid() OR public.is_admin());
 
 DROP POLICY IF EXISTS "notifications_update_policy" ON public.notifications;
 CREATE POLICY "notifications_update_policy"
@@ -61,3 +61,28 @@ CREATE POLICY "notifications_delete_policy"
   FOR DELETE
   TO authenticated
   USING (user_id = auth.uid() OR public.is_admin());
+
+-- 3. AUDIT LOG INSERT POLICY: Allow authenticated users to record auth & self actions
+-- -----------------------------------------------------------------------------
+DROP POLICY IF EXISTS "audit_logs_insert_admin_only" ON public.account_audit_logs;
+DROP POLICY IF EXISTS "audit_logs_insert_policy" ON public.account_audit_logs;
+CREATE POLICY "audit_logs_insert_policy"
+  ON public.account_audit_logs
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (public.is_admin() OR (actor_id = auth.uid()));
+
+-- 4. GRANTS & SCHEMA CACHE RELOAD
+-- -----------------------------------------------------------------------------
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.notifications TO authenticated;
+GRANT SELECT, INSERT ON public.account_audit_logs TO authenticated;
+
+-- Notify PostgREST to reload schema cache immediately
+DO $$
+BEGIN
+  PERFORM pg_notify('pgrst', 'reload schema');
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
+

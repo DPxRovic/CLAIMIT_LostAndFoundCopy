@@ -302,6 +302,18 @@ export async function updateUserProfile(userId, updates) {
     if (error) {
       return { success: false, error: error.message };
     }
+
+    recordActivityLog({
+      action: 'update_profile',
+      notes: `Updated profile details: ${data?.full_name || 'User'}`,
+      targetUserId: userId,
+      targetName: data?.full_name,
+      actorId: userId,
+      actorName: data?.full_name,
+      actorRole: data?.role || 'User',
+      metadata: { fieldsUpdated: Object.keys(payload) },
+    }).catch(() => {});
+
     return { success: true, profile: data };
   } catch (err) {
     return { success: false, error: err?.message || 'Failed to update profile.' };
@@ -377,6 +389,17 @@ export async function uploadUserAvatar(userId, file) {
     if (profileError) {
       return { success: false, error: profileError.message || 'Failed to update profile with avatar URL.' };
     }
+
+    recordActivityLog({
+      action: 'upload_avatar',
+      notes: `Updated profile photo: ${updatedProfile?.full_name || 'User'}`,
+      targetUserId: userId,
+      targetName: updatedProfile?.full_name,
+      actorId: userId,
+      actorName: updatedProfile?.full_name,
+      actorRole: updatedProfile?.role || 'User',
+      metadata: { avatar_url: publicUrl },
+    }).catch(() => {});
 
     return { success: true, publicUrl, profile: updatedProfile };
   } catch (err) {
@@ -458,6 +481,14 @@ export async function verifyAndChangePassword(email, currentPassword, newPasswor
       }
       return { success: false, error: msg };
     }
+
+    recordActivityLog({
+      action: 'change_password',
+      notes: `Changed account password`,
+      targetUserId: data?.user?.id,
+      actorId: data?.user?.id,
+      metadata: { email },
+    }).catch(() => {});
 
     return { success: true, user: data.user };
   } catch (err) {
@@ -574,6 +605,7 @@ export async function recordActivityLog({
   targetUserId = null,
   targetName = null,
   targetRole = null,
+  actorId = null,
   actorName = null,
   actorRole = 'Admin',
   metadata = {},
@@ -581,6 +613,9 @@ export async function recordActivityLog({
 }) {
   const timestamp = new Date().toISOString();
   const entryId = `log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+  const resolvedActorName = actorName || 'Admin';
+  const resolvedActorRole = actorRole || 'Admin';
 
   const localEntry = {
     id: entryId,
@@ -590,10 +625,10 @@ export async function recordActivityLog({
     metadata,
     created_at: timestamp,
     actor: {
-      id: 'current-admin',
-      full_name: actorName || 'Admin',
-      role: actorRole || 'Admin',
-      username: (actorName || 'admin').toLowerCase().replace(/\s+/g, ''),
+      id: actorId || 'current-user',
+      full_name: resolvedActorName,
+      role: resolvedActorRole,
+      username: resolvedActorName.toLowerCase().replace(/\s+/g, ''),
     },
     target: targetUserId || targetName ? {
       id: targetUserId || entryId,
@@ -608,7 +643,7 @@ export async function recordActivityLog({
   if (isSupabaseConfigured() && !skipRemoteInsert) {
     try {
       const { data: activeUser } = await supabase.auth.getUser();
-      const currentActorId = activeUser?.user?.id;
+      const currentActorId = actorId || activeUser?.user?.id;
       if (currentActorId) {
         await supabase.from('account_audit_logs').insert({
           target_user_id: targetUserId || null,
@@ -630,6 +665,8 @@ export async function recordActivityLog({
 // -----------------------------------------------------------------------------
 // NOTIFICATIONS SYSTEM (Authoritative Database + Local Cache)
 // -----------------------------------------------------------------------------
+
+let notificationTableWarningLogged = false;
 
 export function getLocalNotifications() {
   if (typeof window === 'undefined') return [];
@@ -656,6 +693,7 @@ export function saveLocalNotification(notification) {
 
 /**
  * Fetches authoritative notifications for the current user/admin.
+ * Falls back gracefully to local notifications if database table is not yet provisioned.
  */
 export async function adminFetchNotifications() {
   if (!isSupabaseConfigured()) {
@@ -670,11 +708,34 @@ export async function adminFetchNotifications() {
       .limit(50);
 
     if (error) {
-      // If table doesn't exist yet, return honest error
+      const isMissingTable =
+        error.code === 'PGRST205' ||
+        error.code === '42P01' ||
+        (error.message && (
+          error.message.toLowerCase().includes('schema cache') ||
+          error.message.toLowerCase().includes('notifications') ||
+          error.message.toLowerCase().includes('could not find the table') ||
+          error.message.toLowerCase().includes('relation') ||
+          error.message.toLowerCase().includes('does not exist')
+        ));
+
+      if (isMissingTable) {
+        if (!notificationTableWarningLogged) {
+          console.warn(
+            '[ClaimIt / Supabase] The "public.notifications" table was not found in schema cache. ' +
+            'Please run the migration in supabase/migrations/20261021000002_notifications_and_audit_fixes.sql in your Supabase SQL editor. ' +
+            'Falling back to local notifications.'
+          );
+          notificationTableWarningLogged = true;
+        }
+        return { success: true, data: getLocalNotifications(), isDemoMode: false, tableMissing: true };
+      }
+
       console.warn('[ClaimIt] Could not query notifications from database:', error.message);
       return { success: false, error: error.message, data: [] };
     }
 
+    notificationTableWarningLogged = false;
     return { success: true, data: data || [] };
   } catch (err) {
     return { success: false, error: err?.message || 'Failed to load notifications.', data: [] };
