@@ -41,6 +41,27 @@ function AuthLoadingScreen() {
 function AppContent() {
   const { user, role, status, loading, logout, devPreviewMode, setDevPreviewRole, schemaMissing } = useAuth();
   const [adminViewMode, setAdminViewMode] = useState('admin'); // 'admin' | 'user-preview'
+  const [adminPath, setAdminPath] = useState(() => {
+    if (typeof window !== 'undefined' && window.location.hash) {
+      const h = window.location.hash.replace('#', '').trim();
+      const valid = ['dashboard', 'user-management', 'reports', 'manage-lists', 'activity-logs', 'profile-settings'];
+      if (valid.includes(h)) return h;
+    }
+    return 'dashboard';
+  });
+
+  // Keep adminPath synced with hash
+  React.useEffect(() => {
+    const onHashChange = () => {
+      const h = window.location.hash.replace('#', '').trim();
+      const valid = ['dashboard', 'user-management', 'reports', 'manage-lists', 'activity-logs', 'profile-settings'];
+      if (valid.includes(h)) {
+        setAdminPath(h);
+      }
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
 
   if (loading) {
     return <AuthLoadingScreen />;
@@ -100,7 +121,11 @@ function AppContent() {
             <MainForm_User onLogout={logout} />
           </div>
         ) : (
-          <AdminMainForm onLogout={logout} />
+          <AdminMainForm
+            onLogout={logout}
+            currentPath={adminPath}
+            onNavigate={setAdminPath}
+          />
         )}
       </div>
     );

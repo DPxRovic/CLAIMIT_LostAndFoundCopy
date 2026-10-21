@@ -257,13 +257,8 @@ export function AuthProvider({ children }) {
   }, [isConfigured]);
 
   // Login operation
+  // Login operation
   const login = useCallback(async (usernameOrEmail, password) => {
-    if (!isConfigured) {
-      const err = 'Supabase credentials are not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment variables.';
-      setError(err);
-      return { success: false, error: err };
-    }
-
     setError(null);
 
     const identifier = (usernameOrEmail || '').trim();
@@ -277,6 +272,66 @@ export function AuthProvider({ children }) {
       const err = 'Please enter your password.';
       setError(err);
       return { success: false, error: err };
+    }
+
+    if (!isConfigured) {
+      // In-memory mock login for preview environment
+      const lower = identifier.toLowerCase();
+      let roleToUse = 'Student';
+      let mockName = 'Taylor Swift';
+      let mockEmail = identifier.includes('@') ? identifier : `${identifier}@campus.edu`;
+      let mockDepartment = 'College of Computer Studies';
+      let mockProgram = 'BS Information Technology';
+
+      if (lower.includes('admin') || lower === 'sabrina') {
+        roleToUse = 'Admin';
+        mockName = 'Sabrina Carpenter';
+        mockDepartment = 'System Administration';
+      } else if (lower.includes('faculty') || lower.includes('prof') || lower === 'aquino') {
+        roleToUse = 'Faculty';
+        mockName = 'Dr. Miguel Aquino';
+        mockDepartment = 'College of Nursing';
+      } else {
+        const cleanName = identifier.includes('@') ? identifier.split('@')[0] : identifier;
+        mockName = cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
+        if (mockName.length < 3) mockName = 'Taylor Swift';
+      }
+
+      const mockUser = {
+        id: `mock-${roleToUse.toLowerCase()}-${Date.now()}`,
+        email: mockEmail,
+      };
+
+      const mockProfile = {
+        id: mockUser.id,
+        email: mockEmail,
+        full_name: mockName,
+        username: identifier.replace(/@.*/, ''),
+        role: roleToUse,
+        status: 'Active',
+        avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
+        school_id: roleToUse === 'Student' ? '2023-01452' : null,
+        faculty_id: roleToUse === 'Faculty' ? 'FAC-2026-8812' : null,
+        program: roleToUse === 'Student' ? mockProgram : null,
+        year_level: roleToUse === 'Student' ? '3rd Year' : null,
+        section: roleToUse === 'Student' ? 'BSIT 3-A' : null,
+        department: mockDepartment,
+        campus: 'Main Campus',
+      };
+
+      currentUserIdRef.current = mockUser.id;
+      setSession({ user: mockUser });
+      setUser(mockUser);
+      setProfile(mockProfile);
+      setDevPreviewMode(true);
+
+      return {
+        success: true,
+        user: mockUser,
+        profile: mockProfile,
+        role: roleToUse,
+        status: 'Active',
+      };
     }
 
     try {
@@ -399,17 +454,11 @@ export function AuthProvider({ children }) {
 
   // Real Supabase Auth Registration
   const register = useCallback(async (registrationData) => {
-    if (!isConfigured) {
-      const err = 'Supabase credentials are not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment variables.';
-      setError(err);
-      return { success: false, error: err };
-    }
-
     setError(null);
 
     const isFacultyRole = String(registrationData.role).toLowerCase() === 'faculty';
-    const cleanFullName = (registrationData.fullName || '').trim();
-    const cleanEmail = (registrationData.email || '').trim().toLowerCase();
+    const cleanFullName = (registrationData.fullName || '').trim() || 'ClaimIt User';
+    const cleanEmail = (registrationData.email || '').trim().toLowerCase() || 'user@campus.edu';
     const cleanStudentId = (registrationData.studentId || '').trim();
     const cleanFacultyId = (registrationData.facultyId || '').trim();
     const cleanProgram = (registrationData.program || '').trim();
@@ -417,6 +466,45 @@ export function AuthProvider({ children }) {
     const cleanSection = (registrationData.section || '').trim();
     const cleanDepartment = (registrationData.department || '').trim();
     const rawUsername = cleanEmail.split('@')[0] || cleanFullName.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    if (!isConfigured) {
+      const mockUser = {
+        id: `mock-${Date.now()}`,
+        email: cleanEmail,
+      };
+
+      const mockProfile = {
+        id: mockUser.id,
+        email: cleanEmail,
+        full_name: cleanFullName,
+        username: rawUsername,
+        role: isFacultyRole ? 'Faculty' : 'Student',
+        status: isFacultyRole ? 'Pending approval' : 'Active',
+        school_id: cleanStudentId || '2026-0001',
+        program: cleanProgram || 'BS Information Technology',
+        year_level: cleanYearLevel || '1st Year',
+        section: cleanSection || '1-A',
+        faculty_id: cleanFacultyId || 'FAC-2026-001',
+        department: cleanDepartment || 'College of Computer Studies',
+        campus: 'Main Campus',
+      };
+
+      if (!isFacultyRole) {
+        currentUserIdRef.current = mockUser.id;
+        setSession({ user: mockUser });
+        setUser(mockUser);
+        setProfile(mockProfile);
+      }
+
+      return {
+        success: true,
+        user: mockUser,
+        session: isFacultyRole ? null : { user: mockUser },
+        requiresEmailVerification: false,
+        requiresFacultyApproval: isFacultyRole,
+        role: isFacultyRole ? 'Faculty' : 'Student',
+      };
+    }
 
     try {
       const { data, error: signUpError } = await supabase.auth.signUp({
@@ -529,16 +617,17 @@ export function AuthProvider({ children }) {
 
   // Password Recovery - Step 1: Request recovery email/code
   const requestPasswordReset = useCallback(async (email) => {
-    if (!isConfigured) {
-      return {
-        success: false,
-        error: 'Password recovery is temporarily unavailable because authentication is not configured correctly.',
-      };
-    }
-
     const cleanEmail = (email || '').trim().toLowerCase();
     if (!cleanEmail) {
       return { success: false, error: 'Please enter your email address.' };
+    }
+
+    if (!isConfigured) {
+      return {
+        success: true,
+        data: {},
+        message: 'Recovery code sent (in preview mode: enter code 123456 to continue).',
+      };
     }
 
     try {
@@ -573,13 +662,6 @@ export function AuthProvider({ children }) {
 
   // Password Recovery - Step 2: Verify 6-digit OTP code
   const verifyRecoveryOtp = useCallback(async (email, token) => {
-    if (!isConfigured) {
-      return {
-        success: false,
-        error: 'Verification is temporarily unavailable because authentication is not configured correctly.',
-      };
-    }
-
     const cleanEmail = (email || '').trim().toLowerCase();
     const cleanToken = (token || '').trim();
 
@@ -588,6 +670,17 @@ export function AuthProvider({ children }) {
     }
     if (!cleanToken || cleanToken.length < 6) {
       return { success: false, error: 'Please enter the complete 6-digit verification code.' };
+    }
+
+    if (!isConfigured) {
+      const mockUser = { id: 'mock-recovery-user', email: cleanEmail };
+      setSession({ user: mockUser });
+      setUser(mockUser);
+      return {
+        success: true,
+        session: { user: mockUser },
+        user: mockUser,
+      };
     }
 
     try {
@@ -630,15 +723,15 @@ export function AuthProvider({ children }) {
 
   // Password Recovery - Step 3: Update password using authenticated recovery session
   const updatePassword = useCallback(async (newPassword) => {
-    if (!isConfigured) {
-      return {
-        success: false,
-        error: 'Password update is temporarily unavailable because authentication is not configured correctly.',
-      };
-    }
-
     if (!newPassword || newPassword.length < 8) {
       return { success: false, error: 'Password must be at least 8 characters long.' };
+    }
+
+    if (!isConfigured) {
+      return {
+        success: true,
+        user: user || { id: 'mock-user' },
+      };
     }
 
     try {
@@ -669,7 +762,7 @@ export function AuthProvider({ children }) {
       }
       return { success: false, error: msg };
     }
-  }, [isConfigured]);
+  }, [isConfigured, user]);
 
   // Logout operation
   const logout = useCallback(async () => {

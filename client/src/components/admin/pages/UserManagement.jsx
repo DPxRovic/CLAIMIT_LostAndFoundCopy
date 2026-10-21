@@ -13,6 +13,8 @@ import {
   adminUpdateUserDetails,
   adminResetUserPassword,
   adminCreateAccount,
+  recordActivityLog,
+  createNotification,
 } from '../../../lib/supabase.js';
 
 // Fallback seed data for unconfigured development preview
@@ -516,6 +518,20 @@ export default function UserManagement({ onNavigate = () => {} }) {
     setAllUsers((prev) => [approvedUser, ...prev]);
     setModalState({ type: 'approved', account: approvedUser });
     showToast(`Faculty registration approved for ${account.name}`);
+    recordActivityLog({
+      action: 'approve_faculty',
+      notes: 'Faculty registration approved',
+      targetUserId: account.id,
+      targetName: account.name,
+      targetRole: 'Faculty',
+      skipRemoteInsert: isSupabaseConfigured(),
+    });
+    createNotification({
+      title: 'Faculty Registration Approved',
+      message: `Faculty account for ${account.name} was approved and is now active.`,
+      type: 'faculty_approval',
+      status: 'Approved',
+    });
     if (isSupabaseConfigured()) {
       loadAccounts();
     }
@@ -557,6 +573,21 @@ export default function UserManagement({ onNavigate = () => {} }) {
     setAllUsers((prev) => [declinedUser, ...prev]);
     setModalState({ type: 'declined', account: declinedUser, reason });
     showToast(`Registration declined for ${account.name}`);
+    recordActivityLog({
+      action: 'decline_faculty',
+      reason,
+      notes: note,
+      targetUserId: account.id,
+      targetName: account.name,
+      targetRole: 'Faculty',
+      skipRemoteInsert: isSupabaseConfigured(),
+    });
+    createNotification({
+      title: 'Faculty Registration Declined',
+      message: `Registration for ${account.name} was declined: ${reason}`,
+      type: 'faculty_approval',
+      status: 'Declined',
+    });
     if (isSupabaseConfigured()) {
       loadAccounts();
     }
@@ -579,6 +610,20 @@ export default function UserManagement({ onNavigate = () => {} }) {
     setAllUsers((prev) => prev.map((u) => (u.id === account.id ? updated : u)));
     setUserModal({ type: 'details', userId: account.id });
     showToast(`Account suspended for ${account.name}`);
+    recordActivityLog({
+      action: 'suspend_account',
+      reason,
+      targetUserId: account.id,
+      targetName: account.name,
+      targetRole: account.role,
+      skipRemoteInsert: isSupabaseConfigured(),
+    });
+    createNotification({
+      title: 'Account Suspended',
+      message: `Account ${account.name} was suspended. Reason: ${reason || 'Administrative action'}`,
+      type: 'account_status',
+      status: 'Declined',
+    });
   };
 
   // ---------------------------------------------------------------------------
@@ -620,6 +665,15 @@ export default function UserManagement({ onNavigate = () => {} }) {
       setUserModal({ type: 'details', userId: account.id });
       showToast(`Account reactivated for ${account.name}`);
     }
+
+    recordActivityLog({
+      action: 'reactivate_account',
+      notes: 'Account reactivated',
+      targetUserId: account.id,
+      targetName: account.name,
+      targetRole: account.role,
+      skipRemoteInsert: isSupabaseConfigured(),
+    });
   };
 
   // ---------------------------------------------------------------------------
@@ -639,6 +693,14 @@ export default function UserManagement({ onNavigate = () => {} }) {
     setAllUsers((prev) => prev.map((u) => (u.id === account.id ? updated : u)));
     setUserModal({ type: 'details', userId: account.id });
     showToast(`Account deactivated for ${account.name}`);
+    recordActivityLog({
+      action: 'deactivate_account',
+      reason,
+      targetUserId: account.id,
+      targetName: account.name,
+      targetRole: account.role,
+      skipRemoteInsert: isSupabaseConfigured(),
+    });
   };
 
   // ---------------------------------------------------------------------------
@@ -658,6 +720,14 @@ export default function UserManagement({ onNavigate = () => {} }) {
     setAllUsers((prev) => prev.map((u) => (u.id === account.id ? updated : u)));
     setUserModal({ type: 'details', userId: account.id });
     showToast('User details updated successfully');
+    recordActivityLog({
+      action: 'edit_details',
+      notes: 'Admin updated user profile details',
+      targetUserId: account.id,
+      targetName: updates.name || account.name,
+      targetRole: updates.role || account.role,
+      skipRemoteInsert: isSupabaseConfigured(),
+    });
   };
 
   // ---------------------------------------------------------------------------
@@ -677,6 +747,14 @@ export default function UserManagement({ onNavigate = () => {} }) {
 
     setUserModal({ type: 'tempPassword', userId: account.id, password });
     showToast(`Temporary password generated for ${account.name}`);
+    recordActivityLog({
+      action: 'reset_password',
+      notes: 'Temporary password generated',
+      targetUserId: account.id,
+      targetName: account.name,
+      targetRole: account.role,
+      skipRemoteInsert: isSupabaseConfigured(),
+    });
   };
 
   // ---------------------------------------------------------------------------
@@ -692,6 +770,12 @@ export default function UserManagement({ onNavigate = () => {} }) {
       }
       await loadAccounts();
       showToast(`Account created successfully for ${payload.name}`);
+      recordActivityLog({
+        action: 'create_account',
+        notes: `Administrator created ${payload.type === 'student' ? 'Student' : 'Faculty'} account`,
+        targetName: payload.name,
+        targetRole: payload.type === 'student' ? 'Student' : 'Faculty',
+      });
       return { success: true };
     }
 
@@ -722,6 +806,12 @@ export default function UserManagement({ onNavigate = () => {} }) {
     }
     setCurrentPage(1);
     showToast(`Account created successfully for ${payload.name}`);
+    recordActivityLog({
+      action: 'create_account',
+      notes: `Administrator created ${payload.type === 'student' ? 'Student' : 'Faculty'} account`,
+      targetName: payload.name,
+      targetRole: payload.type === 'student' ? 'Student' : 'Faculty',
+    });
     return { success: true };
   };
 

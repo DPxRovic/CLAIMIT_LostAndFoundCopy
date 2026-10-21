@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import AddModalManageLists from '../modals/AddModalManageLists.jsx';
 import EditModalManageLists from '../modals/EditModalManageLists.jsx';
 import DeleteModalManageLists from '../modals/DeleteModalManageLists.jsx';
+import { recordActivityLog } from '../../../lib/supabase.js';
 
 const INITIAL_DATA = {
   report_categories: [
@@ -123,11 +124,39 @@ function Pagination({ page, totalPages, totalItems, onPageChange, itemLabel }) {
   );
 }
 
+const STORAGE_KEY_LISTS = 'claimit_manage_lists_v1';
+
 export default function ManageLists() {
   const [activeTab, setActiveTab] = useState('report_categories');
-  const [listData, setListData] = useState(INITIAL_DATA);
+  const [listData, setListData] = useState(() => {
+    if (typeof window === 'undefined') return INITIAL_DATA;
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY_LISTS);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.report_categories && parsed.programs && parsed.departments) {
+          return parsed;
+        }
+      }
+    } catch {
+      // fallback to initial data
+    }
+    return INITIAL_DATA;
+  });
+
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Save changes to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem(STORAGE_KEY_LISTS, JSON.stringify(listData));
+      } catch (err) {
+        console.warn('[ClaimIt] Could not save listData to localStorage:', err);
+      }
+    }
+  }, [listData]);
 
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -144,12 +173,12 @@ export default function ManageLists() {
   const meta = TAB_META[activeTab];
   const activeTabLabel = tabs.find((t) => t.id === activeTab)?.label ?? '';
 
-  const currentItems = listData[activeTab] || [];
   const filteredItems = useMemo(() => {
+    const items = listData[activeTab] || [];
     const q = searchQuery.toLowerCase().trim();
-    if (!q) return currentItems;
-    return currentItems.filter((item) => item.name.toLowerCase().includes(q));
-  }, [currentItems, searchQuery]);
+    if (!q) return items;
+    return items.filter((item) => item.name.toLowerCase().includes(q));
+  }, [listData, activeTab, searchQuery]);
 
   // Pagination (page is clamped in case the list shrinks after a delete)
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE));
@@ -162,6 +191,12 @@ export default function ManageLists() {
     const newItem = { id: `${prefix}-${Date.now()}`, name: newItemData.name, status: newItemData.status };
     setListData((prev) => ({ ...prev, [activeTab]: [newItem, ...prev[activeTab]] }));
     setCurrentPage(1);
+
+    recordActivityLog({
+      action: 'manage_lists',
+      notes: `Added ${meta.column}: ${newItemData.name}`,
+      metadata: { tab: activeTab, item: newItem },
+    });
   };
 
   const handleSaveEditItem = (updatedItem) => {
@@ -169,10 +204,23 @@ export default function ManageLists() {
       ...prev,
       [activeTab]: prev[activeTab].map((item) => (item.id === updatedItem.id ? updatedItem : item)),
     }));
+
+    recordActivityLog({
+      action: 'manage_lists',
+      notes: `Updated ${meta.column}: ${updatedItem.name}`,
+      metadata: { tab: activeTab, item: updatedItem },
+    });
   };
 
   const handleConfirmDelete = (id) => {
+    const itemToDelete = (listData[activeTab] || []).find((i) => i.id === id);
     setListData((prev) => ({ ...prev, [activeTab]: prev[activeTab].filter((item) => item.id !== id) }));
+
+    recordActivityLog({
+      action: 'manage_lists',
+      notes: `Removed ${meta.column}: ${itemToDelete?.name || id}`,
+      metadata: { tab: activeTab, id },
+    });
   };
 
   return (

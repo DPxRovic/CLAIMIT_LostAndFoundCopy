@@ -1,7 +1,15 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import UserProfileModal from '../shared/UserProfileModal.jsx';
 import LogoutConfirmation from '../shared/LogoutConfirmation.jsx';
+import LivePhilippineClock from './LivePhilippineClock.jsx';
+import Notifications from '../shared/Notifications.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+import {
+  adminFetchNotifications,
+  adminMarkNotificationAsRead,
+  adminMarkAllNotificationsAsRead,
+  formatPhilippineTimestamp,
+} from '../../lib/supabase.js';
 
 // Automatically discover JSX files in the same components folder.
 const pageModules = import.meta.glob('./pages/*.jsx');
@@ -52,7 +60,7 @@ const NAV_ITEMS = [
 ];
 
 export default function AdminMainForm({
-  currentPath = 'manage-lists',
+  currentPath,
   onNavigate = () => {},
   onLogout,
   initialUser,
@@ -67,7 +75,16 @@ export default function AdminMainForm({
       'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
   };
 
-  const [activePath, setActivePath] = useState(currentPath);
+  const getInitialPath = () => {
+    if (typeof window !== 'undefined' && window.location.hash) {
+      const h = window.location.hash.replace('#', '').trim();
+      const valid = ['dashboard', 'user-management', 'reports', 'manage-lists', 'activity-logs', 'profile-settings'];
+      if (valid.includes(h)) return h;
+    }
+    return currentPath || 'dashboard';
+  };
+
+  const [activePath, setActivePath] = useState(getInitialPath);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isLogoutConfirmationOpen, setIsLogoutConfirmationOpen] = useState(false);
   const [user, setUser] = useState(initialUser || authContext?.formattedUser || defaultUser);
@@ -80,6 +97,65 @@ export default function AdminMainForm({
 
   const profileButtonRef = useRef(null);
   const modalContainerRef = useRef(null);
+  const notificationButtonRef = useRef(null);
+  const notificationContainerRef = useRef(null);
+
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+
+  // Load authoritative notifications from database/service
+  useEffect(() => {
+    let isMounted = true;
+
+    async function fetchNotifs() {
+      try {
+        const res = await adminFetchNotifications();
+        if (isMounted && res.success && Array.isArray(res.data)) {
+          const mapped = res.data.map((n) => ({
+            id: n.id,
+            title: n.title,
+            message: n.message,
+            status: n.status,
+            claimId: n.claim_id,
+            type: n.type,
+            unread: !n.read,
+            time: formatPhilippineTimestamp(n.created_at),
+            raw: n,
+          }));
+          setNotifications(mapped);
+        }
+      } catch (err) {
+        console.warn('[ClaimIt] Could not load notifications:', err);
+      }
+    }
+
+    fetchNotifs();
+    const intervalId = setInterval(fetchNotifs, 15000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
+  }, []);
+
+  const handleToggleNotifications = () => {
+    setIsProfileModalOpen(false);
+    setIsNotificationsOpen((prev) => !prev);
+  };
+
+  const handleMarkNotificationRead = async (id) => {
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, unread: false, read: true } : n))
+    );
+    await adminMarkNotificationAsRead(id);
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    setNotifications((prev) =>
+      prev.map((n) => ({ ...n, unread: false, read: true }))
+    );
+    await adminMarkAllNotificationsAsRead();
+  };
 
   // Load Material Symbols for the sidebar and header icons.
   useEffect(() => {
@@ -97,12 +173,30 @@ export default function AdminMainForm({
     }
   }, []);
 
-  // Synchronize the active tab with the currentPath prop.
+  // Synchronize when parent passes an explicit new currentPath prop.
+  const prevPropRef = useRef(currentPath);
   useEffect(() => {
-    setActivePath(currentPath);
+    if (currentPath && currentPath !== prevPropRef.current) {
+      prevPropRef.current = currentPath;
+      setActivePath(currentPath);
+    }
   }, [currentPath]);
 
-  // Close profile modal on click outside
+  // Synchronize with URL hash changes (browser Back/Forward)
+  useEffect(() => {
+    const onHashChange = () => {
+      const h = window.location.hash.replace('#', '').trim();
+      const valid = ['dashboard', 'user-management', 'reports', 'manage-lists', 'activity-logs', 'profile-settings'];
+      if (valid.includes(h)) {
+        setActivePath(h);
+      }
+    };
+
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  // Close profile modal and notifications on click outside or Escape
   useEffect(() => {
     function handleClickOutside(event) {
       if (
@@ -114,22 +208,52 @@ export default function AdminMainForm({
       ) {
         setIsProfileModalOpen(false);
       }
+      if (
+        isNotificationsOpen &&
+        notificationContainerRef.current &&
+        !notificationContainerRef.current.contains(event.target) &&
+        notificationButtonRef.current &&
+        !notificationButtonRef.current.contains(event.target)
+      ) {
+        setIsNotificationsOpen(false);
+      }
     }
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setIsProfileModalOpen(false);
+        setIsNotificationsOpen(false);
+      }
+    }
+
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isProfileModalOpen]);
+    document.addEventListener('touchstart', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isProfileModalOpen, isNotificationsOpen]);
 
   const handleNavClick = (path, e) => {
     if (e) e.preventDefault();
 
     setIsProfileModalOpen(false);
     setActivePath(path);
+    if (typeof window !== 'undefined') {
+      window.location.hash = path;
+    }
     onNavigate(path);
   };
 
   const handleOpenProfileSettings = () => {
     setIsProfileModalOpen(false);
     setActivePath('profile-settings');
+    if (typeof window !== 'undefined') {
+      window.location.hash = 'profile-settings';
+    }
     onNavigate('profile-settings');
   };
 
@@ -249,38 +373,65 @@ export default function AdminMainForm({
       <div className="flex flex-col flex-1 h-full min-w-0 overflow-hidden">
         {/* Header */}
         <header className="h-16 w-full bg-white border-b border-[#E8E4D8] px-8 flex items-center justify-between shrink-0 shadow-[0_1px_4px_rgba(0,0,0,0.02)] z-20">
-          {/* Date and Time */}
+          {/* Date and Time: Live Philippine Standard Time (PHT, Asia/Manila) */}
           <div className="flex items-center">
-            <div className="flex items-center gap-2.5 px-4 py-1.5 rounded-lg border border-[#E8E4D8] bg-white text-sm">
-              <span className="material-symbols-outlined text-[20px] text-[#5170ff]">
-                calendar_today
-              </span>
-
-              <span className="font-bold text-[#23261F]">
-                Wed, Sep 16, 2026
-              </span>
-
-              <span className="text-[#6E6858]/60">•</span>
-
-              <span className="font-medium text-[#444655]">
-                10:45 AM PST
-              </span>
-            </div>
+            <LivePhilippineClock />
           </div>
 
           {/* Notifications and User Profile */}
           <div className="flex items-center gap-3 relative">
-            <button
-              aria-label="Notifications"
-              className="relative flex items-center justify-center p-2 rounded-lg text-[#444655] hover:bg-[#e5eeff] hover:text-[#0b1c30] transition-colors cursor-pointer"
-              type="button"
-            >
-              <span className="material-symbols-outlined text-[22px]">
-                notifications
-              </span>
+            {/* Notification Bell with working dropdown */}
+            <div className="relative">
+              <button
+                ref={notificationButtonRef}
+                aria-label="Notifications"
+                aria-expanded={isNotificationsOpen}
+                aria-haspopup="dialog"
+                onClick={handleToggleNotifications}
+                className={`relative flex items-center justify-center p-2 rounded-lg transition-colors cursor-pointer ${
+                  isNotificationsOpen
+                    ? 'bg-[#e5eeff] text-[#5170ff]'
+                    : 'text-[#444655] hover:bg-[#e5eeff] hover:text-[#0b1c30]'
+                }`}
+                type="button"
+              >
+                <span className="material-symbols-outlined text-[22px]">
+                  notifications
+                </span>
 
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#ba1a1a] ring-2 ring-white" />
-            </button>
+                {notifications.filter((n) => n.unread).length > 0 && (
+                  <span
+                    className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 bg-[#ba1a1a] text-white text-[10px] font-bold rounded-full flex items-center justify-center ring-2 ring-white shadow-xs"
+                    aria-label={`${notifications.filter((n) => n.unread).length} unread notifications`}
+                  >
+                    {notifications.filter((n) => n.unread).length > 99
+                      ? '99+'
+                      : notifications.filter((n) => n.unread).length}
+                  </span>
+                )}
+              </button>
+
+              {/* Notifications Dropdown Panel */}
+              {isNotificationsOpen && (
+                <div
+                  ref={notificationContainerRef}
+                  className="absolute right-0 top-11 z-50 animate-in fade-in zoom-in-95 duration-150"
+                >
+                  <Notifications
+                    notifications={notifications}
+                    isOpen={isNotificationsOpen}
+                    onClose={() => setIsNotificationsOpen(false)}
+                    onMarkAllAsRead={handleMarkAllNotificationsRead}
+                    onMarkAsRead={handleMarkNotificationRead}
+                    onSelectClaim={() => {
+                      setIsNotificationsOpen(false);
+                      handleNavClick('reports');
+                    }}
+                    closeOnOutsideClick={false}
+                  />
+                </div>
+              )}
+            </div>
 
             {/* User Profile Button with Modal Trigger */}
             <div className="relative">

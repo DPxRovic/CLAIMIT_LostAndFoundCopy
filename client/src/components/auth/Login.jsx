@@ -226,20 +226,19 @@ export default function Login({ onForgotPassword, onRegister, onLoginSuccess }) 
               <svg className="w-4 h-4 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <span>Supabase Not Yet Configured</span>
+              <span>Preview Mode Active</span>
             </div>
             <p>
-              Set <code className="bg-amber-100 px-1 py-0.5 rounded text-[11px]">VITE_SUPABASE_URL</code> and{' '}
-              <code className="bg-amber-100 px-1 py-0.5 rounded text-[11px]">VITE_SUPABASE_ANON_KEY</code> in your environment for live database authentication.
+              Supabase credentials not detected. You can log in with any username (e.g., <span className="font-semibold text-amber-950">admin</span> or <span className="font-semibold text-amber-950">student</span>) and any password, or use quick access:
             </p>
             <div className="mt-2 pt-2 border-t border-amber-200/60 flex items-center gap-2">
-              <span className="text-[11px] font-medium text-amber-900">UI Dev Preview:</span>
+              <span className="text-[11px] font-medium text-amber-900">Quick Access:</span>
               <button
                 type="button"
                 onClick={() => setDevPreviewRole('Student')}
                 className="text-xs text-[#5170ff] hover:underline font-semibold cursor-pointer"
               >
-                Preview Student
+                Log in as Student
               </button>
               <span className="text-amber-400">•</span>
               <button
@@ -247,7 +246,7 @@ export default function Login({ onForgotPassword, onRegister, onLoginSuccess }) 
                 onClick={() => setDevPreviewRole('Admin')}
                 className="text-xs text-[#5170ff] hover:underline font-semibold cursor-pointer"
               >
-                Preview Admin
+                Log in as Admin
               </button>
             </div>
           </div>

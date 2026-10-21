@@ -216,8 +216,8 @@ export const Notifications = ({
             </p>
             <p className="text-[12px] text-[#6E6858] mt-1 max-w-[240px]">
               {filter === 'unread'
-                ? 'You are up to date with all recent claim and item updates.'
-                : 'Updates about your claims and matching campus reports will appear here.'}
+                ? 'You are all caught up with recent updates.'
+                : 'Updates about campus reports, account approvals, and item claims will appear here.'}
             </p>
           </div>
         ) : (
